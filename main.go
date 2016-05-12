@@ -128,9 +128,18 @@ const (
 type Bug struct {
 	Type   BugType
 	Color  Color
+	RColor Color
 	Eaten  int8
 	Rune   rune
 	entity *termloop.Entity
+}
+
+// ColorEffective returns the currently drawn color for the bug.
+func (b *Bug) ColorEffective() Color {
+	if b.Color != ColorMulti {
+		return b.Color
+	}
+	return b.RColor
 }
 
 // CrunchGame contains a player, critters, a score, and other game state.
@@ -299,6 +308,7 @@ func (g *CrunchGame) assignMultiColors() {
 		case 1:
 			color = ColorBug + 1
 		}
+		bug.RColor = color
 		cell := &termloop.Cell{
 			Fg: defaultColorMap.Color(color),
 			Ch: bug.Rune,
@@ -357,10 +367,11 @@ func (g *CrunchGame) bugEats(i int, other *Bug) bool {
 		return false
 	}
 	bottom := g.vines[i][len(g.vines[i])-1]
-	eats := false
-	// Determine if the bottom bug can eat the bug being spit.  Large bugs eat
+
+	// Determine if the bottom bug can eat the incoming bug.  Large bugs eat
 	// small bugs.  Small bugs eat gnats.  Magic bug and bomb bugs eat
 	// anything.
+	eats := false
 	switch bottom.Type {
 	case BugLarge:
 		if other.Type == BugSmall && other.Color == bottom.Color {
@@ -379,6 +390,12 @@ func (g *CrunchGame) bugEats(i int, other *Bug) bool {
 	}
 
 	bottom.Eaten++
+	bottom.Rune = g.assignRune(bottom)
+	bottom.entity.SetCell(0, 0, &termloop.Cell{
+		Fg: defaultColorMap.Color(bottom.ColorEffective()),
+		Ch: bottom.Rune,
+	})
+
 	// TODO: begin to trigger the chain reaction if necessary.
 
 	return true
