@@ -98,9 +98,17 @@ type ColorMap interface {
 	Color(Color) termloop.Attr
 }
 
-// SetCellColor sets the foreground of m according to a color map
+// SetCellColor sets the foreground of c according to a color map
 func SetCellColor(c *termloop.Cell, m ColorMap, fg Color) {
+	c.Bg = termloop.ColorBlack
 	c.Fg = m.Color(fg)
+}
+
+// SetCellColorBg sets the foreground and background of c according to a color
+// map
+func SetCellColorBg(c *termloop.Cell, m ColorMap, fg, bg Color) {
+	c.Fg = m.Color(fg)
+	c.Bg = m.Color(bg)
 }
 
 // BugType enumerates the types of possible bugs
@@ -331,8 +339,78 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 	}
 }
 
+func (g *CrunchGame) grabBug(i int) bool {
+	if i >= g.config.NumCol {
+		return false
+	}
+	if len(g.vines[i]) == 0 {
+		return false
+	}
+	g.player.contains = g.vines[i][len(g.vines[i])-1]
+	g.vines[i] = g.vines[i][:len(g.vines[i])-1]
+	g.level.RemoveEntity(g.player.contains.entity)
+	return true
+}
+
+func (g *CrunchGame) bugEats(i int, other *Bug) bool {
+	if i >= g.config.NumCol {
+		return false
+	}
+	bottom := g.vines[i][len(g.vines[i])-1]
+	eats := false
+	// Determine if the bottom bug can eat the bug being spit.  Large bugs eat
+	// small bugs.  Small bugs eat gnats.  Magic bug and bomb bugs eat
+	// anything.
+	switch bottom.Type {
+	case BugLarge:
+		if other.Type == BugSmall && other.Color == bottom.Color {
+			eats = true
+		}
+	case BugSmall:
+		if other.Type == BugGnat {
+			eats = true
+		}
+	case BugMagic, BugBomb:
+		eats = true
+	}
+
+	if !eats {
+		return false
+	}
+
+	bottom.Eaten++
+	// TODO: begin to trigger the chain reaction if necessary.
+
+	return true
+}
+
+func (g *CrunchGame) spitBug(i int) bool {
+	if i >= g.config.NumCol {
+		return false
+	}
+	if len(g.vines[i]) >= g.config.ColDepth {
+		return false
+	}
+
+	spat := g.player.contains
+	g.player.contains = nil
+
+	if !g.bugEats(i, spat) {
+		g.vines[i] = g.vines[i][:len(g.vines[i])+1]
+		g.vines[i][len(g.vines[i])-1] = spat
+		spat.entity.SetPosition(g.colX(i), len(g.vines[i]))
+		g.level.AddEntity(spat.entity)
+	}
+
+	return true
+}
+
 // Tick implements termloop.Drawable
 func (g *CrunchGame) Tick(event termloop.Event) {
+	if g.gameOver() {
+		return
+	}
+
 	if event.Type == termloop.EventKey { // Is it a keyboard event?
 		switch event.Ch { // If so, switch on the pressed key.
 		case 'l':
@@ -347,11 +425,14 @@ func (g *CrunchGame) Tick(event termloop.Event) {
 			}
 		case 'k':
 			if g.player.contains != nil {
-				g.player.contains = nil
+				if g.spitBug(g.playerPos) {
+					g.player.entity.SetCell(0, 0, g.player.cell())
+				}
 			} else {
-				g.player.contains = &Bug{Type: BugSmall, Color: ColorBug}
+				if g.grabBug(g.playerPos) {
+					g.player.entity.SetCell(0, 0, g.player.cell())
+				}
 			}
-			g.player.entity.SetCell(0, 0, g.player.cell())
 		case 'j':
 			// TODO: puke on the side of the screen when your buddy is around
 		}
@@ -377,11 +458,10 @@ func (p Player) cell() *termloop.Cell {
 	cell := &termloop.Cell{}
 	if p.contains != nil {
 		cell.Ch = '@'
-		SetCellColor(cell, defaultColorMap, p.contains.Color)
 	} else {
 		cell.Ch = 'O'
-		SetCellColor(cell, defaultColorMap, ColorPlayer)
 	}
+	SetCellColor(cell, defaultColorMap, ColorPlayer)
 	return cell
 }
 
