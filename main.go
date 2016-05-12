@@ -521,6 +521,23 @@ func (g *CrunchGame) triggerExplosions() {
 	g.pendingChains = g.pendingChains[:0]
 }
 
+func decreasePtY(pts *[]image.Point, min int) {
+	next := 0
+	for k := range *pts {
+		if (*pts)[k].Y < min {
+			(*pts)[next] = (*pts)[k]
+			next++
+			continue
+		}
+		if (*pts)[k].Y == min {
+			continue
+		}
+		(*pts)[next] = (*pts)[k]
+		(*pts)[next].Y--
+		next++
+	}
+}
+
 func (g *CrunchGame) clearExploded() bool {
 	g.triggerExplosions()
 	consumed := false
@@ -534,9 +551,12 @@ func (g *CrunchGame) clearExploded() bool {
 				if gapstart < 0 {
 					gapstart = j
 				}
+				decreasePtY(&g.pendingExplos, j)
+				decreasePtY(&g.pendingMagics, j)
+				decreasePtY(&g.pendingChains, j)
 				g.level.RemoveEntity(g.vines[i][j].entity)
 			} else if gapstart >= 0 {
-				if !g.bugEats(i, gapstart, g.vines[i][j]) {
+				if gapstart > 0 && !g.bugEats(i, gapstart-1, g.vines[i][j]) {
 					newvine = append(newvine, g.vines[i][j])
 				} else {
 					g.level.RemoveEntity(g.vines[i][j].entity)
