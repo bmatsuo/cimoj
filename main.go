@@ -4,9 +4,10 @@ import (
 	"image"
 	"log"
 	"math/rand"
+	"os"
 	"time"
 
-	"github.com/Ariemeth/termloop"
+	"github.com/JoelOtter/termloop"
 )
 
 // CrunchConfig defines the crunching board.
@@ -31,10 +32,16 @@ func (conf *CrunchConfig) colLength() int {
 }
 
 func main() {
+	logf, err := os.Create("cimoj-log.txt")
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.SetOutput(logf)
+
 	config := &CrunchConfig{
 		NumCol:           6,
 		ColSpace:         2,
-		ColDepth:         5,
+		ColDepth:         10,
 		CritterSizeSmall: 1,
 		CritterSizeLarge: 1,
 	}
@@ -67,9 +74,7 @@ func main() {
 	for i := 0; i < config.NumCol; i++ {
 		posX := 1 + config.ColSpace + config.CritterSizeLarge/2 + i*(config.ColSpace+config.CritterSizeLarge)
 		column := termloop.NewEntity(posX, 1, 1, config.colLength())
-		for j := 0; j < config.colLength(); j++ {
-			column.SetCell(0, j, &termloop.Cell{Fg: termloop.ColorGreen, Ch: '|'})
-		}
+		column.Fill(&termloop.Cell{Fg: termloop.ColorGreen, Ch: '|'})
 		board.AddEntity(column)
 	}
 
@@ -353,7 +358,7 @@ func (g *CrunchGame) randMultiColor() Color {
 
 // Draw implements termloop.Drawable
 func (g *CrunchGame) Draw(screen *termloop.Screen) {
-	defer g.level.Draw(screen)
+	g.level.Draw(screen)
 
 	now := time.Now()
 
@@ -373,8 +378,10 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 	}
 
 	if g.clearExploded() {
+		log.Printf("triggering explosions")
 		g.triggerExplosions()
 	}
+	g.level.Draw(screen)
 }
 
 func (g *CrunchGame) grabBug(i int) bool {
@@ -396,6 +403,7 @@ func (g *CrunchGame) grabBug(i int) bool {
 	if g.player.contains == nil {
 		return false
 	}
+	log.Printf("pos=[%d, %d] grab", i, j)
 	copy(g.vines[i][j:], g.vines[i][j+1:])
 	g.vines[i] = g.vines[i][:len(g.vines[i])-1]
 	g.level.RemoveEntity(g.player.contains.entity)
@@ -459,11 +467,17 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug) bool {
 // BUG: Bombs do not trigger chain reactions with other bombs.
 func (g *CrunchGame) triggerExplosions() {
 	for _, pt := range g.pendingExplos {
-		for i := pt.X - 1; i < pt.X+1; i++ {
+		log.Printf("pos=[%d, %d] bomb exploded ", pt.X, pt.Y)
+		for i := pt.X - 1; i <= pt.X+1; i++ {
 			if i >= 0 && i < len(g.vines) {
-				for j := pt.Y - 1; j < pt.Y+1; j++ {
+				for j := pt.Y - 1; j <= pt.Y+1; j++ {
 					if j >= 0 && j < len(g.vines[i]) {
+						log.Printf("pos=[%d, %d] exploaded by bomb at pos=[%d, %d]", i, j, pt.X, pt.Y)
 						g.vines[i][j].Exploded = true
+						g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
+							Fg: defaultColorMap.Color(ColorExploded),
+							Ch: g.vines[i][j].Rune,
+						})
 					}
 				}
 			}
@@ -476,12 +490,22 @@ func (g *CrunchGame) triggerExplosions() {
 			continue
 		}
 		g.vines[i][j].Exploded = true
+		g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
+			Fg: defaultColorMap.Color(ColorExploded),
+			Ch: g.vines[i][j].Rune,
+		})
+		log.Printf("pos=[%d, %d] magic exploded", i, j)
 		mcolor := g.vines[i][j].EColor
 
 		for i := range g.vines {
 			for j := range g.vines[i] {
 				if g.vines[i][j].Color == mcolor {
+					log.Printf("pos=[%d, %d] exploaded by magic at pos=[%d, %d]", i, j, pt.X, pt.Y)
 					g.vines[i][j].Exploded = true
+					g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
+						Fg: defaultColorMap.Color(ColorExploded),
+						Ch: g.vines[i][j].Rune,
+					})
 				}
 			}
 		}
@@ -512,30 +536,6 @@ func (g *CrunchGame) clearExploded() bool {
 					gapstart = j
 				}
 				g.level.RemoveEntity(g.vines[i][j].entity)
-				for k := range g.pendingExplos {
-					if g.pendingExplos[k].X == i && g.pendingExplos[k].Y > j {
-						g.pendingExplos[k].Y--
-					}
-					if g.pendingExplos[k].X == i && g.pendingExplos[k].Y == j {
-						panic("fuck")
-					}
-				}
-				for k := range g.pendingMagics {
-					if g.pendingMagics[k].X == i && g.pendingMagics[k].Y > j {
-						g.pendingMagics[k].Y++
-					}
-					if g.pendingMagics[k].X == i && g.pendingMagics[k].Y == j {
-						panic("fuck")
-					}
-				}
-				for k := range g.pendingChains {
-					if g.pendingChains[k].X == i && g.pendingChains[k].Y > j {
-						g.pendingChains[k].Y++
-					}
-					if g.pendingChains[k].X == i && g.pendingChains[k].Y == j {
-						panic("fuck")
-					}
-				}
 			} else if gapstart >= 0 {
 				if !g.bugEats(i, gapstart, g.vines[i][j]) {
 					newvine = append(newvine, g.vines[i][j])
@@ -543,6 +543,9 @@ func (g *CrunchGame) clearExploded() bool {
 					g.level.RemoveEntity(g.vines[i][j].entity)
 					consumed = true
 				}
+				gapstart = -1
+			} else {
+				newvine = append(newvine, g.vines[i][j])
 			}
 		}
 		if compacted {
@@ -552,6 +555,7 @@ func (g *CrunchGame) clearExploded() bool {
 			for j := range g.vines[i] {
 				g.vines[i][j].entity.SetPosition(cx, j+1)
 			}
+			log.Printf("col=%d compacted remaining=%d", i, len(g.vines[i]))
 		}
 		newvine = newvine[:0]
 	}
@@ -579,11 +583,13 @@ func (g *CrunchGame) explosionChain(i, j int, c Color) {
 		return
 	}
 
+	log.Printf("pos=[%d, %d] exploaded in chain color=%v", i, j, c)
 	g.vines[i][j].Exploded = true
 	g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
 		Fg: defaultColorMap.Color(ColorExploded),
 		Ch: g.vines[i][j].Rune,
 	})
+
 	if i > 0 {
 		g.explosionChain(i-1, j, c)
 	}
@@ -612,12 +618,14 @@ func (g *CrunchGame) spitBug(i int) bool {
 	}
 
 	if len(g.vines[i]) >= g.config.ColDepth {
+		log.Printf("col=%d cannot spit", i)
 		g.player.contains = spat
 		return false
 	}
 
 	g.vines[i] = g.vines[i][:len(g.vines[i])+1]
 	g.vines[i][len(g.vines[i])-1] = spat
+	log.Printf("pos=[%d, %d] spit", i, len(g.vines[i])-1)
 	spat.entity.SetPosition(g.colX(i), len(g.vines[i]))
 	g.level.AddEntity(spat.entity)
 
@@ -631,6 +639,7 @@ func (g *CrunchGame) Tick(event termloop.Event) {
 	}
 
 	if event.Type == termloop.EventKey { // Is it a keyboard event?
+		log.Printf("KEYPRESS %c", event.Ch)
 		switch event.Ch { // If so, switch on the pressed key.
 		case 'l':
 			if g.playerPos < g.config.NumCol {
