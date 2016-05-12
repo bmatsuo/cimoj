@@ -89,6 +89,7 @@ const (
 	ColorNone Color = iota
 	ColorMulti
 	ColorBomb
+	ColorExploded
 	ColorPlayer
 	ColorBug
 )
@@ -126,12 +127,14 @@ const (
 // Bug is a bug that crawls down the vines.  Bugs have distinct color.  Large
 // bugs can only eat smaller bugs of the same color.
 type Bug struct {
-	Type   BugType
-	Color  Color
-	RColor Color
-	Eaten  int8
-	Rune   rune
-	entity *termloop.Entity
+	Type     BugType
+	Color    Color
+	RColor   Color
+	EColor   Color
+	Exploded bool
+	Eaten    int8
+	Rune     rune
+	entity   *termloop.Entity
 }
 
 // ColorEffective returns the currently drawn color for the bug.
@@ -139,20 +142,26 @@ func (b *Bug) ColorEffective() Color {
 	if b.Color != ColorMulti {
 		return b.Color
 	}
+	if b.EColor != ColorNone && b.EColor != ColorMulti {
+		return b.EColor
+	}
 	return b.RColor
 }
 
 // CrunchGame contains a player, critters, a score, and other game state.
 type CrunchGame struct {
-	config     *CrunchConfig
-	playerPos  int
-	player     *Player
-	vines      [][]*Bug
-	rand       Rand
-	spawnTime  time.Time
-	multis     map[*Bug]struct{}
-	multisTime time.Time
-	level      *termloop.BaseLevel
+	config        *CrunchConfig
+	playerPos     int
+	player        *Player
+	vines         [][]*Bug
+	pendingExplos []image.Point
+	pendingChains []image.Point
+	pendingMagics []image.Point
+	rand          Rand
+	spawnTime     time.Time
+	multis        map[*Bug]struct{}
+	multisTime    time.Time
+	level         *termloop.BaseLevel
 }
 
 // NewCrunchGame initializes a new CrunchGame.
@@ -296,6 +305,21 @@ func (g *CrunchGame) spawnBugs() {
 			}
 			g.vines[i][j].entity.SetPosition(cx, y)
 		}
+		for k := range g.pendingExplos {
+			if g.pendingExplos[k].X == i {
+				g.pendingExplos[k].Y++
+			}
+		}
+		for k := range g.pendingMagics {
+			if g.pendingMagics[k].X == i {
+				g.pendingMagics[k].Y++
+			}
+		}
+		for k := range g.pendingChains {
+			if g.pendingChains[k].X == i {
+				g.pendingChains[k].Y++
+			}
+		}
 	}
 }
 
@@ -310,7 +334,7 @@ func (g *CrunchGame) assignMultiColors() {
 		}
 		bug.RColor = color
 		cell := &termloop.Cell{
-			Fg: defaultColorMap.Color(color),
+			Fg: defaultColorMap.Color(bug.ColorEffective()),
 			Ch: bug.Rune,
 		}
 		bug.entity.SetCell(0, 0, cell)
@@ -338,7 +362,7 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 	if g.gameOver() {
 		// TODO: do something here
 	} else {
-		if now.Sub(g.spawnTime) > 2*time.Second {
+		if now.Sub(g.spawnTime) > 4*time.Second {
 			g.spawnTime = now
 			g.spawnBugs()
 		}
@@ -347,29 +371,51 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 		g.multisTime = now
 		g.assignMultiColors()
 	}
+
+	if g.clearExploded() {
+		g.triggerExplosions()
+	}
 }
 
 func (g *CrunchGame) grabBug(i int) bool {
 	if i >= g.config.NumCol {
 		return false
 	}
-	if len(g.vines[i]) == 0 {
+	var j int
+	for j = len(g.vines[i]) - 1; j >= 0; j-- {
+		bug := g.vines[i][j]
+		if bug.Exploded {
+			continue
+		}
+		if bug.Eaten >= 2 {
+			return false
+		}
+		g.player.contains = bug
+		break
+	}
+	if g.player.contains == nil {
 		return false
 	}
-	g.player.contains = g.vines[i][len(g.vines[i])-1]
+	copy(g.vines[i][j:], g.vines[i][j+1:])
 	g.vines[i] = g.vines[i][:len(g.vines[i])-1]
 	g.level.RemoveEntity(g.player.contains.entity)
 	return true
 }
 
-func (g *CrunchGame) bugEats(i int, other *Bug) bool {
+func (g *CrunchGame) bugEats(i, j int, other *Bug) bool {
 	if i >= g.config.NumCol {
 		return false
 	}
-	bottom := g.vines[i][len(g.vines[i])-1]
+	if j < 0 {
+		if len(g.vines[i]) == 0 {
+			return false
+		}
+		j = len(g.vines[i]) - 1
+	}
+	bottom := g.vines[i][j]
 
 	// Determine if the bottom bug can eat the incoming bug.  Large bugs eat
-	// small bugs.  Small bugs eat gnats.  Magic bug and bomb bugs eat
+	// small bugs.  Small bugs eat gnats.  Magic bugs and bomb bugs eat
 	// anything.
 	eats := false
 	switch bottom.Type {
@@ -385,39 +431,195 @@ func (g *CrunchGame) bugEats(i int, other *Bug) bool {
 		eats = true
 	}
 
-	if !eats {
+	if bottom.Eaten >= 2 || !eats {
 		return false
 	}
 
-	bottom.Eaten++
+	bottom.Eaten += 1 + other.Eaten
 	bottom.Rune = g.assignRune(bottom)
 	bottom.entity.SetCell(0, 0, &termloop.Cell{
 		Fg: defaultColorMap.Color(bottom.ColorEffective()),
 		Ch: bottom.Rune,
 	})
 
-	// TODO: begin to trigger the chain reaction if necessary.
+	if bottom.Eaten >= 2 {
+		if bottom.Type == BugBomb {
+			g.pendingExplos = append(g.pendingExplos, image.Pt(i, j))
+		} else if bottom.Type == BugMagic {
+			bottom.EColor = other.Color
+			g.pendingMagics = append(g.pendingMagics, image.Pt(i, j))
+		} else {
+			g.pendingChains = append(g.pendingChains, image.Pt(i, j))
+		}
+	}
 
 	return true
+}
+
+// BUG: Bombs do not trigger chain reactions with other bombs.
+func (g *CrunchGame) triggerExplosions() {
+	for _, pt := range g.pendingExplos {
+		for i := pt.X - 1; i < pt.X+1; i++ {
+			if i >= 0 && i < len(g.vines) {
+				for j := pt.Y - 1; j < pt.Y+1; j++ {
+					if j >= 0 && j < len(g.vines[i]) {
+						g.vines[i][j].Exploded = true
+					}
+				}
+			}
+		}
+	}
+
+	for _, pt := range g.pendingMagics {
+		i, j := pt.X, pt.Y
+		if g.vines[i][j].Exploded {
+			continue
+		}
+		g.vines[i][j].Exploded = true
+		mcolor := g.vines[i][j].EColor
+
+		for i := range g.vines {
+			for j := range g.vines[i] {
+				if g.vines[i][j].Color == mcolor {
+					g.vines[i][j].Exploded = true
+				}
+			}
+		}
+	}
+
+	for _, pt := range g.pendingChains {
+		i, j := pt.X, pt.Y
+		g.explosionChain(i, j, g.vines[i][j].Color)
+	}
+
+	g.pendingExplos = g.pendingExplos[:0]
+	g.pendingMagics = g.pendingMagics[:0]
+	g.pendingChains = g.pendingChains[:0]
+}
+
+// BUG: clearExploded does not respect the order in which things explode
+func (g *CrunchGame) clearExploded() bool {
+	g.triggerExplosions()
+	consumed := false
+	newvine := make([]*Bug, 0, cap(g.vines[0]))
+	for i := range g.vines {
+		compacted := false
+		gapstart := -1
+		for j := range g.vines[i] {
+			if g.vines[i][j].Exploded {
+				compacted = true
+				if gapstart < 0 {
+					gapstart = j
+				}
+				g.level.RemoveEntity(g.vines[i][j].entity)
+				for k := range g.pendingExplos {
+					if g.pendingExplos[k].X == i && g.pendingExplos[k].Y > j {
+						g.pendingExplos[k].Y--
+					}
+					if g.pendingExplos[k].X == i && g.pendingExplos[k].Y == j {
+						panic("fuck")
+					}
+				}
+				for k := range g.pendingMagics {
+					if g.pendingMagics[k].X == i && g.pendingMagics[k].Y > j {
+						g.pendingMagics[k].Y++
+					}
+					if g.pendingMagics[k].X == i && g.pendingMagics[k].Y == j {
+						panic("fuck")
+					}
+				}
+				for k := range g.pendingChains {
+					if g.pendingChains[k].X == i && g.pendingChains[k].Y > j {
+						g.pendingChains[k].Y++
+					}
+					if g.pendingChains[k].X == i && g.pendingChains[k].Y == j {
+						panic("fuck")
+					}
+				}
+			} else if gapstart >= 0 {
+				if !g.bugEats(i, gapstart, g.vines[i][j]) {
+					newvine = append(newvine, g.vines[i][j])
+				} else {
+					g.level.RemoveEntity(g.vines[i][j].entity)
+					consumed = true
+				}
+			}
+		}
+		if compacted {
+			copy(g.vines[i], newvine)
+			g.vines[i] = g.vines[i][:len(newvine)]
+			cx := g.colX(i)
+			for j := range g.vines[i] {
+				g.vines[i][j].entity.SetPosition(cx, j+1)
+			}
+		}
+		newvine = newvine[:0]
+	}
+
+	return consumed
+}
+
+func (g *CrunchGame) explosionChain(i, j int, c Color) {
+	if i < 0 {
+		return
+	}
+	if i >= len(g.vines) {
+		return
+	}
+	if j < 0 {
+		return
+	}
+	if j >= len(g.vines[i]) {
+		return
+	}
+	if g.vines[i][j].Exploded {
+		return
+	}
+	if g.vines[i][j].Color != c {
+		return
+	}
+
+	g.vines[i][j].Exploded = true
+	g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
+		Fg: defaultColorMap.Color(ColorExploded),
+		Ch: g.vines[i][j].Rune,
+	})
+	if i > 0 {
+		g.explosionChain(i-1, j, c)
+	}
+	if i < len(g.vines)-1 {
+		g.explosionChain(i+1, j, c)
+	}
+
+	if j > 0 {
+		g.explosionChain(i, j-1, c)
+	}
+	if j < len(g.vines[i])-1 {
+		g.explosionChain(i, j+1, c)
+	}
 }
 
 func (g *CrunchGame) spitBug(i int) bool {
 	if i >= g.config.NumCol {
 		return false
 	}
-	if len(g.vines[i]) >= g.config.ColDepth {
-		return false
-	}
 
 	spat := g.player.contains
 	g.player.contains = nil
 
-	if !g.bugEats(i, spat) {
-		g.vines[i] = g.vines[i][:len(g.vines[i])+1]
-		g.vines[i][len(g.vines[i])-1] = spat
-		spat.entity.SetPosition(g.colX(i), len(g.vines[i]))
-		g.level.AddEntity(spat.entity)
+	if g.bugEats(i, -1, spat) {
+		return true
 	}
+
+	if len(g.vines[i]) >= g.config.ColDepth {
+		g.player.contains = spat
+		return false
+	}
+
+	g.vines[i] = g.vines[i][:len(g.vines[i])+1]
+	g.vines[i][len(g.vines[i])-1] = spat
+	spat.entity.SetPosition(g.colX(i), len(g.vines[i]))
+	g.level.AddEntity(spat.entity)
 
 	return true
 }
@@ -488,10 +690,11 @@ func (p *Player) Tick(event termloop.Event) {
 }
 
 var defaultColorMap = simpleColorMap{
-	ColorNone:   termloop.ColorWhite,
-	ColorMulti:  termloop.ColorWhite, // ColorMulti is not used
-	ColorBomb:   termloop.ColorRed,
-	ColorPlayer: termloop.ColorMagenta,
+	ColorNone:     termloop.ColorWhite,
+	ColorMulti:    termloop.ColorWhite, // ColorMulti is not used
+	ColorBomb:     termloop.ColorRed,
+	ColorExploded: termloop.ColorBlack,
+	ColorPlayer:   termloop.ColorMagenta,
 
 	ColorBug + 0: termloop.ColorYellow,
 	ColorBug + 1: termloop.ColorBlue,
