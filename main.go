@@ -110,6 +110,7 @@ type BugType uint8
 const (
 	BugSmall BugType = iota
 	BugLarge
+	BugGnat
 	BugMagic
 	BugBomb
 )
@@ -119,17 +120,22 @@ const (
 type Bug struct {
 	Type   BugType
 	Color  Color
+	Eaten  int8
+	Rune   rune
 	entity *termloop.Entity
 }
 
 // CrunchGame contains a player, critters, a score, and other game state.
 type CrunchGame struct {
-	config    *CrunchConfig
-	playerPos int
-	player    *Player
-	vines     [][]*Bug
-	rand      Rand
-	level     *termloop.BaseLevel
+	config     *CrunchConfig
+	playerPos  int
+	player     *Player
+	vines      [][]*Bug
+	rand       Rand
+	spawnTime  time.Time
+	multis     map[*Bug]struct{}
+	multisTime time.Time
+	level      *termloop.BaseLevel
 }
 
 // NewCrunchGame initializes a new CrunchGame.
@@ -137,6 +143,7 @@ func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame 
 	g := &CrunchGame{
 		config: config,
 		rand:   defaultRand(),
+		multis: make(map[*Bug]struct{}),
 		level:  level,
 	}
 	g.vines = make([][]*Bug, config.NumCol)
@@ -151,6 +158,7 @@ func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame 
 	}
 	g.player.entity.SetCell(0, 0, g.player.cell())
 	g.level.AddEntity(g.player.entity)
+
 	return g
 }
 
@@ -165,6 +173,15 @@ func defaultRand() Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
+func (g *CrunchGame) gameOver() bool {
+	for i := range g.vines {
+		if len(g.vines[i]) >= g.config.NumCol {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *CrunchGame) randomColorBug(n int) Color {
 	return ColorBug + Color(g.rand.Intn(n))
 }
@@ -172,48 +189,146 @@ func (g *CrunchGame) randomColorBug(n int) Color {
 func (g *CrunchGame) randomBug() *Bug {
 	roll := g.rand.Intn(100) + 1
 
-	roll -= 45
+	roll -= 30
 	if roll < 0 {
-		return &Bug{
-			Type:  BugSmall,
-			Color: g.randomColorBug(2),
-		}
+		return g.createBug(BugSmall, g.randomColorBug(2))
 	}
 
-	roll -= 45
+	roll -= 30
 	if roll < 0 {
-		return &Bug{
-			Type:  BugLarge,
-			Color: g.randomColorBug(2),
-		}
+		return g.createBug(BugLarge, g.randomColorBug(2))
+	}
+
+	roll -= 30
+	if roll < 0 {
+		return g.createBug(BugGnat, ColorNone)
 	}
 
 	roll -= 8
 	if roll < 0 {
-		return &Bug{
-			Type:  BugBomb,
-			Color: ColorBomb,
-		}
+		return g.createBug(BugBomb, ColorBomb)
 	}
 
-	return &Bug{
-		Type:  BugMagic,
-		Color: ColorMulti,
+	return g.createBug(BugMagic, ColorMulti)
+}
+
+func (g *CrunchGame) createBug(typ BugType, c Color) *Bug {
+	b := &Bug{
+		Type:  typ,
+		Color: c,
 	}
+	b.Rune = g.assignRune(b)
+	return b
+}
+
+func (g *CrunchGame) assignRune(bug *Bug) rune {
+	switch bug.Type {
+	case BugSmall:
+		if bug.Eaten > 0 {
+			return '⊛'
+		}
+		return 'o'
+	case BugLarge:
+		if bug.Eaten > 0 {
+			return '@'
+		}
+		return 'O'
+	case BugGnat:
+		const gnats = "`'~"
+		return rune(gnats[g.rand.Intn(len(gnats))])
+	case BugBomb:
+		if bug.Eaten > 0 {
+			return '&'
+		}
+		return '8'
+	case BugMagic:
+		if bug.Eaten > 0 {
+			return '*'
+		}
+		return '+'
+	}
+	return 'x'
 }
 
 func (g *CrunchGame) spawnBugs() {
 	// for now we do something simple and spawn bugs in all rows simultaneously
 	for i := range g.vines {
 		g.vines[i] = g.vines[i][:len(g.vines[i])+1]
-		copy(g.vines[i], g.vines[i][1:])
+		copy(g.vines[i][1:], g.vines[i][0:]) // shift bugs "down"
 		g.vines[i][0] = g.randomBug()
+		g.vines[i][0].entity = termloop.NewEntity(0, 0, 1, 1)
+		if g.vines[i][0].Color == ColorMulti {
+			g.multis[g.vines[i][0]] = struct{}{}
+			g.vines[i][0].entity.SetCell(0, 0, &termloop.Cell{
+				Fg: defaultColorMap.Color(g.randMultiColor()),
+				Ch: g.vines[i][0].Rune,
+			})
+		} else {
+			g.vines[i][0].entity.SetCell(0, 0, &termloop.Cell{
+				Fg: defaultColorMap.Color(g.vines[i][0].Color),
+				Ch: g.vines[i][0].Rune,
+			})
+		}
+		g.level.AddEntity(g.vines[i][0].entity)
+		cx := g.colX(i)
+		size := g.config.boardSize()
+		for j := range g.vines[i] {
+			y := size.Y
+			if j < g.config.ColDepth {
+				y = 1 + j
+			}
+			g.vines[i][j].entity.SetPosition(cx, y)
+		}
 	}
+}
+
+func (g *CrunchGame) assignMultiColors() {
+	for bug := range g.multis {
+		color := ColorBomb
+		switch g.rand.Intn(3) {
+		case 0:
+			color = ColorBug + 0
+		case 1:
+			color = ColorBug + 1
+		}
+		cell := &termloop.Cell{
+			Fg: defaultColorMap.Color(color),
+			Ch: bug.Rune,
+		}
+		bug.entity.SetCell(0, 0, cell)
+	}
+}
+
+func (g *CrunchGame) randMultiColor() Color {
+	switch g.rand.Intn(3) {
+	case 0:
+		return ColorBug + 0
+	case 1:
+		return ColorBug + 1
+	}
+	return ColorBomb
 }
 
 // Draw implements termloop.Drawable
 func (g *CrunchGame) Draw(screen *termloop.Screen) {
-	g.level.Draw(screen)
+	defer g.level.Draw(screen)
+
+	now := time.Now()
+
+	twinkle := true
+
+	if g.gameOver() {
+		// TODO: do something here
+	} else {
+		if now.Sub(g.spawnTime) > 2*time.Second {
+			g.spawnTime = now
+			g.spawnBugs()
+		}
+	}
+	if twinkle && now.Sub(g.multisTime) > 100*time.Millisecond {
+		g.multisTime = now
+		g.assignMultiColors()
+	}
 }
 
 // Tick implements termloop.Drawable
@@ -261,10 +376,10 @@ func (p *Player) Draw(screen *termloop.Screen) {
 func (p Player) cell() *termloop.Cell {
 	cell := &termloop.Cell{}
 	if p.contains != nil {
-		cell.Ch = '⊙'
+		cell.Ch = '@'
 		SetCellColor(cell, defaultColorMap, p.contains.Color)
 	} else {
-		cell.Ch = 'o'
+		cell.Ch = 'O'
 		SetCellColor(cell, defaultColorMap, ColorPlayer)
 	}
 	return cell
@@ -276,8 +391,8 @@ func (p *Player) Tick(event termloop.Event) {
 }
 
 var defaultColorMap = simpleColorMap{
-	ColorNone:   termloop.ColorBlack,
-	ColorMulti:  termloop.ColorBlack, // ColorMulti is not used
+	ColorNone:   termloop.ColorWhite,
+	ColorMulti:  termloop.ColorWhite, // ColorMulti is not used
 	ColorBomb:   termloop.ColorRed,
 	ColorPlayer: termloop.ColorMagenta,
 
