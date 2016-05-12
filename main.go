@@ -206,7 +206,7 @@ func defaultRand() Rand {
 
 func (g *CrunchGame) gameOver() bool {
 	for i := range g.vines {
-		if len(g.vines[i]) >= g.config.NumCol {
+		if len(g.vines[i]) > g.config.ColDepth {
 			return true
 		}
 	}
@@ -521,7 +521,6 @@ func (g *CrunchGame) triggerExplosions() {
 	g.pendingChains = g.pendingChains[:0]
 }
 
-// BUG: clearExploded does not respect the order in which things explode
 func (g *CrunchGame) clearExploded() bool {
 	g.triggerExplosions()
 	consumed := false
@@ -635,11 +634,11 @@ func (g *CrunchGame) spitBug(i int) bool {
 // Tick implements termloop.Drawable
 func (g *CrunchGame) Tick(event termloop.Event) {
 	if g.gameOver() {
+		log.Printf("GAME OVER")
 		return
 	}
 
 	if event.Type == termloop.EventKey { // Is it a keyboard event?
-		log.Printf("KEYPRESS %c", event.Ch)
 		switch event.Ch { // If so, switch on the pressed key.
 		case 'l':
 			if g.playerPos < g.config.NumCol {
