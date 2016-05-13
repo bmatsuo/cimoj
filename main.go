@@ -611,22 +611,7 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug) bool {
 // BUG: Bombs do not trigger chain reactions with other bombs.
 func (g *CrunchGame) triggerExplosions() {
 	for _, pt := range g.pendingExplos {
-		log.Printf("pos=[%d, %d] bomb exploded ", pt.X, pt.Y)
-		for i := pt.X - 1; i <= pt.X+1; i++ {
-			if i >= 0 && i < len(g.vines) {
-				for j := pt.Y - 1; j <= pt.Y+1; j++ {
-					if j >= 0 && j < len(g.vines[i]) {
-						log.Printf("pos=[%d, %d] exploaded by bomb at pos=[%d, %d]", i, j, pt.X, pt.Y)
-						g.vines[i][j].Exploded = true
-						g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
-							Fg: defaultColorMap.Color(ColorExploded),
-							Ch: g.vines[i][j].Rune,
-						})
-						g.score++
-					}
-				}
-			}
-		}
+		g.bombChain(pt.X, pt.Y)
 	}
 
 	for _, pt := range g.pendingMagics {
@@ -727,6 +712,47 @@ func (g *CrunchGame) clearExploded() bool {
 	}
 
 	return consumed
+}
+
+func (g *CrunchGame) bombChain(i, j int) {
+	if i < 0 {
+		return
+	}
+	if i >= len(g.vines) {
+		return
+	}
+	if j < 0 {
+		return
+	}
+	if j >= len(g.vines[i]) {
+		return
+	}
+	if g.vines[i][j].Exploded {
+		return
+	}
+
+	g.vines[i][j].Exploded = true
+	g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
+		Fg: defaultColorMap.Color(ColorExploded),
+		Ch: g.vines[i][j].Rune,
+	})
+	g.score++
+
+	if g.vines[i][j].Type == BugBomb {
+		log.Printf("pos=[%d, %d] bomb exploded", i, j)
+		// Explode nearby bugs; out of bounds accesses are handled in the call.
+		// The following nested loop will call g.explosionChain(i, j) again but
+		// we should have already exploded index (i,j) and no infinite
+		// recursion will occur.
+		for ik := i - 1; ik <= i+1; ik++ {
+			for jk := j - 1; jk <= j+1; jk++ {
+				g.bombChain(ik, jk)
+				g.bombChain(ik, jk)
+			}
+		}
+	} else {
+		log.Printf("pos=[%d, %d] exploded by bomb", i, j)
+	}
 }
 
 func (g *CrunchGame) explosionChain(i, j int, c Color) {
