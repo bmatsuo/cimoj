@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"log"
 	"math/rand"
@@ -156,6 +157,8 @@ func (b *Bug) ColorEffective() Color {
 // CrunchGame contains a player, critters, a score, and other game state.
 type CrunchGame struct {
 	config        *CrunchConfig
+	score         int64
+	skilllevel    uint32
 	playerPos     int
 	player        *Player
 	vines         [][]*Bug
@@ -166,6 +169,9 @@ type CrunchGame struct {
 	spawnTime     time.Time
 	multis        map[*Bug]struct{}
 	multisTime    time.Time
+	textScore     *termloop.Text
+	textLevel     *termloop.Text
+	textHint      *termloop.Text
 	level         *termloop.BaseLevel
 }
 
@@ -181,6 +187,33 @@ func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame 
 	for i := range g.vines {
 		g.vines[i] = make([]*Bug, 0, config.ColDepth+1)
 	}
+
+	size := config.boardSize()
+	/*
+		textWidth := 72 - size - 8
+		if textWidth < 0 {
+			textWidth = 20
+		}
+	*/
+	textLevel := termloop.NewBaseLevel(termloop.Cell{})
+	textLevel.SetOffset(size.X+8, 2)
+
+	const textValuePad = 13
+
+	textTitle := termloop.NewText(0, 0, "Cimoj", termloop.ColorGreen, 0)
+	textLevel.AddEntity(textTitle)
+
+	textLevelLabel := termloop.NewText(0, 2, "No. Etaĝon:", termloop.ColorGreen, 0)
+	textLevel.AddEntity(textLevelLabel)
+	g.textLevel = termloop.NewText(textValuePad, 2, "0", termloop.ColorWhite, 0)
+	textLevel.AddEntity(g.textLevel)
+
+	textScoreLabel := termloop.NewText(0, 4, "Punktoj:", termloop.ColorGreen, 0)
+	textLevel.AddEntity(textScoreLabel)
+	g.textScore = termloop.NewText(textValuePad, 4, "0", termloop.ColorWhite, 0)
+	textLevel.AddEntity(g.textScore)
+
+	level.AddEntity(textLevel)
 
 	g.playerPos = config.NumCol
 	g.player = &Player{
@@ -371,6 +404,8 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 			g.spawnTime = now
 			g.spawnBugs()
 		}
+		g.textLevel.SetText(fmt.Sprint(g.skilllevel))
+		g.textScore.SetText(fmt.Sprint(g.score))
 	}
 	if twinkle && now.Sub(g.multisTime) > 100*time.Millisecond {
 		g.multisTime = now
@@ -478,6 +513,7 @@ func (g *CrunchGame) triggerExplosions() {
 							Fg: defaultColorMap.Color(ColorExploded),
 							Ch: g.vines[i][j].Rune,
 						})
+						g.score++
 					}
 				}
 			}
@@ -496,6 +532,7 @@ func (g *CrunchGame) triggerExplosions() {
 		})
 		log.Printf("pos=[%d, %d] magic exploded", i, j)
 		mcolor := g.vines[i][j].EColor
+		g.score++
 
 		for i := range g.vines {
 			for j := range g.vines[i] {
@@ -506,6 +543,7 @@ func (g *CrunchGame) triggerExplosions() {
 						Fg: defaultColorMap.Color(ColorExploded),
 						Ch: g.vines[i][j].Rune,
 					})
+					g.score++
 				}
 			}
 		}
@@ -608,6 +646,7 @@ func (g *CrunchGame) explosionChain(i, j int, c Color) {
 		Fg: defaultColorMap.Color(ColorExploded),
 		Ch: g.vines[i][j].Rune,
 	})
+	g.score++
 
 	if i > 0 {
 		g.explosionChain(i-1, j, c)
@@ -673,10 +712,12 @@ func (g *CrunchGame) Tick(event termloop.Event) {
 		case 'k':
 			if g.player.contains != nil {
 				if g.spitBug(g.playerPos) {
+					g.score++
 					g.player.entity.SetCell(0, 0, g.player.cell())
 				}
 			} else {
 				if g.grabBug(g.playerPos) {
+					g.score++
 					g.player.entity.SetCell(0, 0, g.player.cell())
 				}
 			}
