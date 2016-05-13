@@ -15,8 +15,12 @@ import (
 	"github.com/JoelOtter/termloop"
 )
 
+// GameVersion is used for bookkeeping pursposes
+var GameVersion = "v0.0.1"
+
 // CrunchConfig defines the crunching board.
 type CrunchConfig struct {
+	Player           string
 	Difficulty       Difficulty
 	NumCol           int
 	ColVSpace        int
@@ -38,6 +42,11 @@ func (conf *CrunchConfig) colLength() int {
 }
 
 func main() {
+	scorefile, err := NewHighScoreFile("tmp/highscores.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	logf, err := os.Create("tmp/cimoj-log.txt")
 	if err != nil {
 		log.Fatal(err)
@@ -85,7 +94,7 @@ func main() {
 		board.AddEntity(column)
 	}
 
-	crunch := NewCrunchGame(config, board)
+	crunch := NewCrunchGame(config, scorefile, board)
 
 	level.AddEntity(crunch)
 
@@ -190,10 +199,15 @@ type CrunchGame struct {
 	textHint          [3]*termloop.Text
 	textGameOver      [2]*termloop.Text
 	level             *termloop.BaseLevel
+	startTime         time.Time
+	endTime           time.Time
+	scoreDB           ScoreDB
+	scoreWriteStarted bool
+	scoreWriteResult  chan error
 }
 
 // NewCrunchGame initializes a new CrunchGame.
-func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame {
+func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLevel) *CrunchGame {
 	now := time.Now()
 	g := &CrunchGame{
 		config:        config,
@@ -202,6 +216,8 @@ func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame 
 		level:         level,
 		bugSpawnTime:  now,
 		itemSpawnTime: now,
+		scoreDB:       scores,
+		startTime:     now,
 	}
 	g.vines = make([][]*Bug, config.NumCol)
 	for i := range g.vines {
@@ -258,6 +274,19 @@ func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame 
 	g.calcItemSpawnTime()
 
 	return g
+}
+
+func (g *CrunchGame) calcHighScore() *HighScore {
+	return &HighScore{
+		Player: g.config.Player,
+		Score:  g.score,
+		Level:  int(g.skillLevel),
+		Start:  g.startTime,
+		End:    g.endTime,
+		Qual: map[string]string{
+			"GameVersion": GameVersion,
+		},
+	}
 }
 
 func (g *CrunchGame) calcItemSpawnTime() {
@@ -493,6 +522,36 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 	twinkle := true
 
 	if g.gameOver() {
+		if g.endTime.IsZero() {
+			g.endTime = now
+		}
+		if !g.scoreWriteStarted {
+			record := g.calcHighScore()
+
+			g.scoreWriteStarted = true
+			g.scoreWriteResult = make(chan error, 1)
+			go func() {
+				if g.scoreDB != nil {
+					g.scoreWriteResult <- g.scoreDB.WriteHighScore(record)
+				} else {
+					g.scoreWriteResult <- nil
+				}
+			}()
+		} else {
+			select {
+			case err := <-g.scoreWriteResult:
+				if err != nil {
+					log.Printf("unable to write high score: %v", err)
+				}
+
+				// TODO: It is OK to exit the game.  Do it automically after a
+				// timeout.
+				g.scoreWriteResult <- err // just write the result back for now
+			default:
+				// the game still hasn't ended
+			}
+		}
+
 		if now.Sub(g.goTime) > time.Second {
 			g.goTime = now
 			if g.showingGameOver {
