@@ -38,7 +38,7 @@ func (conf *CrunchConfig) colLength() int {
 }
 
 func main() {
-	logf, err := os.Create("cimoj-log.txt")
+	logf, err := os.Create("tmp/cimoj-log.txt")
 	if err != nil {
 		log.Fatal(err)
 	}
