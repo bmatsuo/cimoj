@@ -9,224 +9,10 @@ import (
 	"log"
 	"math"
 	"math/rand"
-	"os"
 	"time"
 
 	"github.com/JoelOtter/termloop"
 )
-
-// GameVersion is used for bookkeeping pursposes
-var GameVersion = "v0.0.1"
-
-// CrunchConfig defines the crunching board.
-type CrunchConfig struct {
-	Player           string
-	Difficulty       Difficulty
-	NumCol           int
-	ColVSpace        int
-	ColSpace         int
-	ColDepth         int
-	CritterSizeSmall int
-	CritterSizeLarge int
-}
-
-func (conf *CrunchConfig) boardSize() image.Point {
-	return image.Point{
-		X: conf.NumCol*conf.CritterSizeLarge + (conf.NumCol+1)*conf.ColSpace,
-		Y: (conf.ColDepth+1)*(conf.CritterSizeLarge+conf.ColVSpace) + conf.CritterSizeLarge, // extra depth for death indication -- below vine
-	}
-}
-
-func (conf *CrunchConfig) colLength() int {
-	return conf.ColDepth * (conf.CritterSizeLarge + conf.ColVSpace)
-}
-
-func main() {
-	scorefile, err := NewHighScoreFile("tmp/highscores.json")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	logf, err := os.Create("tmp/cimoj-log.txt")
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.SetOutput(logf)
-
-	config := &CrunchConfig{
-		Difficulty:       &simpleDifficulty{},
-		NumCol:           6,
-		ColSpace:         2,
-		ColDepth:         10,
-		CritterSizeSmall: 1,
-		CritterSizeLarge: 1,
-	}
-
-	size := config.boardSize()
-	log.Printf("size: %v", size)
-
-	game := termloop.NewGame()
-	app := NewCrunchApp(game, config, scorefile)
-	app.Start()
-}
-
-// CrunchApp represents the top-level application, a session which may involve
-// multiple games.
-type CrunchApp struct {
-	game    *termloop.Game
-	screen  *termloop.Screen
-	config  *CrunchConfig
-	current *CrunchGame
-	scoreDB ScoreDB
-}
-
-// NewCrunchApp creates a new CrunchApp using a static config that can be
-// repeatedly played.
-func NewCrunchApp(game *termloop.Game, config *CrunchConfig, scores ScoreDB) *CrunchApp {
-	app := &CrunchApp{
-		game:    game,
-		config:  config,
-		scoreDB: scores,
-	}
-
-	app.current = app.createNewGame()
-
-	game.Screen().AddEntity(app)
-
-	return app
-}
-
-// Start starts the application/game.
-func (app *CrunchApp) Start() {
-	app.game.Start()
-}
-
-// Draw implements termloop.Drawable
-func (app *CrunchApp) Draw(screen *termloop.Screen) {
-	app.current.Draw(screen)
-}
-
-// Tick implements termloop.Drawable
-func (app *CrunchApp) Tick(event termloop.Event) {
-	if app.current != nil && !app.current.Finished() {
-		app.current.Tick(event)
-		return
-	}
-
-	if event.Type == termloop.EventKey { // Is it a keyboard event?
-		switch event.Key {
-		case termloop.KeyEnter:
-			// Just let the old game get garbage collected, it will stop
-			// recieved events and draw calls, so the only real worry is lag in
-			// the subsequent game.
-			app.current = app.createNewGame()
-		}
-	}
-}
-
-func (app *CrunchApp) createNewGame() *CrunchGame {
-	size := app.config.boardSize()
-	log.Printf("size=[%d, %d] new game", size.X, size.Y)
-
-	level := termloop.NewBaseLevel(termloop.Cell{
-		Bg: termloop.ColorBlack,
-		Fg: termloop.ColorWhite,
-	})
-
-	board := termloop.NewBaseLevel(termloop.Cell{})
-	board.SetOffset(2, 1)
-
-	border := termloop.NewEntity(0, 0, size.X+2, size.Y+2)
-	for i := 0; i < size.X+2; i++ {
-		border.SetCell(i, 0, &termloop.Cell{Fg: termloop.ColorGreen, Ch: '~'})
-		border.SetCell(i, size.Y+1, &termloop.Cell{Fg: termloop.ColorGreen, Ch: 'v'})
-	}
-	for j := 1; j < size.Y+1; j++ {
-		border.SetCell(0, j, &termloop.Cell{Fg: termloop.ColorGreen, Ch: '|'})
-		border.SetCell(size.X+1, j, &termloop.Cell{Fg: termloop.ColorGreen, Ch: '|'})
-	}
-	board.AddEntity(border)
-	//board.AddEntity(termloop.NewRectangle(1, 1, size.X, size.Y, termloop.ColorCyan))
-
-	for i := 0; i < app.config.NumCol; i++ {
-		posX := 1 + app.config.ColSpace + app.config.CritterSizeLarge/2 + i*(app.config.ColSpace+app.config.CritterSizeLarge)
-		column := termloop.NewEntity(posX, 1, 1, app.config.colLength())
-		column.Fill(&termloop.Cell{Fg: termloop.ColorGreen, Ch: '|'})
-		board.AddEntity(column)
-	}
-
-	crunch := NewCrunchGame(app.config, app.scoreDB, board)
-	level.AddEntity(crunch)
-
-	return crunch
-}
-
-// Color is the a color in a crunch game.
-type Color uint8
-
-// Color constants with special significance.
-const (
-	ColorNone Color = iota
-	ColorMulti
-	ColorBomb
-	ColorExploded
-	ColorPlayer
-	ColorBug
-)
-
-// ColorMap maps game colors to their actual representation in a terminal.
-type ColorMap interface {
-	Color(Color) termloop.Attr
-}
-
-// SetCellColor sets the foreground of c according to a color map
-func SetCellColor(c *termloop.Cell, m ColorMap, fg Color) {
-	c.Bg = termloop.ColorBlack
-	c.Fg = m.Color(fg)
-}
-
-// SetCellColorBg sets the foreground and background of c according to a color
-// map
-func SetCellColorBg(c *termloop.Cell, m ColorMap, fg, bg Color) {
-	c.Fg = m.Color(fg)
-	c.Bg = m.Color(bg)
-}
-
-// BugType enumerates the types of possible bugs
-type BugType uint8
-
-// BugType values that are acceptable
-const (
-	BugSmall BugType = iota
-	BugLarge
-	BugGnat
-	BugMagic
-	BugBomb
-)
-
-// Bug is a bug that crawls down the vines.  Bugs have distinct color.  Large
-// bugs can only eat smaller bugs of the same color.
-type Bug struct {
-	Type     BugType
-	Color    Color
-	RColor   Color
-	EColor   Color
-	Exploded bool
-	Eaten    int8
-	Rune     rune
-	entity   *termloop.Entity
-}
-
-// ColorEffective returns the currently drawn color for the bug.
-func (b *Bug) ColorEffective() Color {
-	if b.Color != ColorMulti {
-		return b.Color
-	}
-	if b.EColor != ColorNone && b.EColor != ColorMulti {
-		return b.EColor
-	}
-	return b.RColor
-}
 
 // CrunchGame contains a player, critters, a score, and other game state.
 type CrunchGame struct {
@@ -1175,4 +961,71 @@ type Difficulty interface {
 	// determins the duration each spawn exists.  Multiple items may exist at
 	// the same time.
 	ItemRate(lvl int) (spawn, despawn float64)
+}
+
+// Color is the a color in a crunch game.
+type Color uint8
+
+// Color constants with special significance.
+const (
+	ColorNone Color = iota
+	ColorMulti
+	ColorBomb
+	ColorExploded
+	ColorPlayer
+	ColorBug
+)
+
+// ColorMap maps game colors to their actual representation in a terminal.
+type ColorMap interface {
+	Color(Color) termloop.Attr
+}
+
+// SetCellColor sets the foreground of c according to a color map
+func SetCellColor(c *termloop.Cell, m ColorMap, fg Color) {
+	c.Bg = termloop.ColorBlack
+	c.Fg = m.Color(fg)
+}
+
+// SetCellColorBg sets the foreground and background of c according to a color
+// map
+func SetCellColorBg(c *termloop.Cell, m ColorMap, fg, bg Color) {
+	c.Fg = m.Color(fg)
+	c.Bg = m.Color(bg)
+}
+
+// BugType enumerates the types of possible bugs
+type BugType uint8
+
+// BugType values that are acceptable
+const (
+	BugSmall BugType = iota
+	BugLarge
+	BugGnat
+	BugMagic
+	BugBomb
+)
+
+// Bug is a bug that crawls down the vines.  Bugs have distinct color.  Large
+// bugs can only eat smaller bugs of the same color.
+type Bug struct {
+	Type     BugType
+	Color    Color
+	RColor   Color
+	EColor   Color
+	Exploded bool
+	Eaten    int8
+	Rune     rune
+	entity   *termloop.Entity
+}
+
+// ColorEffective returns the currently drawn color for the bug.
+func (b *Bug) ColorEffective() Color {
+	if b.Color != ColorMulti {
+		return b.Color
+	}
+	if b.EColor != ColorNone && b.EColor != ColorMulti {
+		return b.EColor
+	}
+	return b.RColor
 }
