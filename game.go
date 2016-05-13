@@ -108,16 +108,19 @@ func (app *CrunchApp) Draw(screen *termloop.Screen) {
 
 // Tick implements termloop.Drawable
 func (app *CrunchApp) Tick(event termloop.Event) {
-	if app.current != nil && !app.current.gameOver() {
+	if app.current != nil && !app.current.Finished() {
 		app.current.Tick(event)
 		return
 	}
 
 	if event.Type == termloop.EventKey { // Is it a keyboard event?
-		// Just let the old game get garbage collected, it will stop recieved
-		// events and draw calls, so the only real worry is lag in the
-		// subsequent game.
-		app.current = app.createNewGame()
+		switch event.Key {
+		case termloop.KeyEnter:
+			// Just let the old game get garbage collected, it will stop
+			// recieved events and draw calls, so the only real worry is lag in
+			// the subsequent game.
+			app.current = app.createNewGame()
+		}
 	}
 }
 
@@ -260,6 +263,9 @@ type CrunchGame struct {
 	scoreDB           ScoreDB
 	scoreWriteStarted bool
 	scoreWriteResult  chan error
+	finishTime        time.Time
+	finishTimeout     time.Time
+	finished          bool
 }
 
 // NewCrunchGame initializes a new CrunchGame.
@@ -401,6 +407,12 @@ func (g *CrunchGame) colX(i int) int {
 
 func defaultRand() Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
+
+// Finished will return true when the game screen can be cleared and a new game
+// can start.
+func (g *CrunchGame) Finished() bool {
+	return g.finished
 }
 
 func (g *CrunchGame) gameOver() bool {
@@ -580,6 +592,8 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 			g.endTime = now
 		}
 		if !g.scoreWriteStarted {
+			g.finishTime = now.Add(500 * time.Millisecond)
+			g.finishTimeout = now.Add(20 * time.Second)
 			record := g.calcHighScore()
 
 			g.scoreWriteStarted = true
@@ -591,18 +605,22 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 					g.scoreWriteResult <- nil
 				}
 			}()
-		} else {
+		} else if now.After(g.finishTime) {
 			select {
 			case err := <-g.scoreWriteResult:
+				g.scoreWriteResult = nil
+				g.finishTimeout = time.Time{}
+
 				if err != nil {
 					log.Printf("unable to write high score: %v", err)
 				}
 
-				// TODO: It is OK to exit the game.  Do it automically after a
-				// timeout.
-				g.scoreWriteResult <- err // just write the result back for now
+				// It is OK to exit the game.
+				g.finished = true
 			default:
-				// the game still hasn't ended
+				if !g.finishTimeout.IsZero() && now.After(g.finishTimeout) {
+					panic("hanging while writing the high score record")
+				}
 			}
 		}
 
