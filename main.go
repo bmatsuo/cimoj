@@ -156,23 +156,25 @@ func (b *Bug) ColorEffective() Color {
 
 // CrunchGame contains a player, critters, a score, and other game state.
 type CrunchGame struct {
-	config        *CrunchConfig
-	score         int64
-	skilllevel    uint32
-	playerPos     int
-	player        *Player
-	vines         [][]*Bug
-	pendingExplos []image.Point
-	pendingChains []image.Point
-	pendingMagics []image.Point
-	rand          Rand
-	spawnTime     time.Time
-	multis        map[*Bug]struct{}
-	multisTime    time.Time
-	textScore     *termloop.Text
-	textLevel     *termloop.Text
-	textHint      [3]*termloop.Text
-	level         *termloop.BaseLevel
+	config          *CrunchConfig
+	score           int64
+	skilllevel      uint32
+	playerPos       int
+	player          *Player
+	vines           [][]*Bug
+	pendingExplos   []image.Point
+	pendingChains   []image.Point
+	pendingMagics   []image.Point
+	rand            Rand
+	spawnTime       time.Time
+	multis          map[*Bug]struct{}
+	multisTime      time.Time
+	showingGameOver bool
+	textScore       *termloop.Text
+	textLevel       *termloop.Text
+	textHint        [3]*termloop.Text
+	textGameOver    [2]*termloop.Text
+	level           *termloop.BaseLevel
 }
 
 // NewCrunchGame initializes a new CrunchGame.
@@ -198,12 +200,15 @@ func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame 
 	textLevel := termloop.NewBaseLevel(termloop.Cell{})
 	textLevel.SetOffset(size.X+8, 2)
 
-	const textValuePad = 13
+	const textValuePad = 12
+
+	g.textGameOver[0] = termloop.NewText(3+size.X/2-10, size.Y/2-1, "     La Ludo    ", termloop.ColorMagenta, 0)
+	g.textGameOver[1] = termloop.NewText(3+size.X/2-10, size.Y/2+1, "     Finiĝis    ", termloop.ColorMagenta, 0)
 
 	textTitle := termloop.NewText(0, 0, "Cimoj", termloop.ColorGreen, 0)
 	textLevel.AddEntity(textTitle)
 
-	textLevelLabel := termloop.NewText(0, 2, "No. Etaĝon:", termloop.ColorGreen, 0)
+	textLevelLabel := termloop.NewText(0, 2, "Etaĝo No.:", termloop.ColorGreen, 0)
 	textLevel.AddEntity(textLevelLabel)
 	g.textLevel = termloop.NewText(textValuePad, 2, "0", termloop.ColorWhite, 0)
 	textLevel.AddEntity(g.textLevel)
@@ -213,7 +218,7 @@ func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame 
 	g.textScore = termloop.NewText(textValuePad, 4, "0", termloop.ColorWhite, 0)
 	textLevel.AddEntity(g.textScore)
 
-	g.textHint[0] = termloop.NewText(0, 6, "Movu per h and l.", termloop.ColorCyan, 0)
+	g.textHint[0] = termloop.NewText(0, 6, "Movu per h kaj l.", termloop.ColorCyan, 0)
 	g.textHint[1] = termloop.NewText(0, 7, "", termloop.ColorCyan, 0)
 	g.textHint[2] = termloop.NewText(0, 8, "Prenu kaj kraĉu cimojn per k.", termloop.ColorCyan, 0)
 	textLevel.AddEntity(g.textHint[0])
@@ -405,9 +410,19 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 	twinkle := true
 
 	if g.gameOver() {
-		// TODO: do something here
+		if now.Sub(g.spawnTime) > time.Second {
+			g.spawnTime = now
+			if g.showingGameOver {
+				g.level.RemoveEntity(g.textGameOver[0])
+				g.level.RemoveEntity(g.textGameOver[1])
+			} else {
+				g.level.AddEntity(g.textGameOver[0])
+				g.level.AddEntity(g.textGameOver[1])
+			}
+			g.showingGameOver = !g.showingGameOver
+		}
 	} else {
-		if now.Sub(g.spawnTime) > 4*time.Second {
+		if now.Sub(g.spawnTime) > 2*time.Second {
 			g.spawnTime = now
 			g.spawnBugs()
 		}
