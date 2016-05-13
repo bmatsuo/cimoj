@@ -171,7 +171,7 @@ type CrunchGame struct {
 	multisTime    time.Time
 	textScore     *termloop.Text
 	textLevel     *termloop.Text
-	textHint      *termloop.Text
+	textHint      [3]*termloop.Text
 	level         *termloop.BaseLevel
 }
 
@@ -212,6 +212,13 @@ func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame 
 	textLevel.AddEntity(textScoreLabel)
 	g.textScore = termloop.NewText(textValuePad, 4, "0", termloop.ColorWhite, 0)
 	textLevel.AddEntity(g.textScore)
+
+	g.textHint[0] = termloop.NewText(0, 6, "Movu per h and l.", termloop.ColorCyan, 0)
+	g.textHint[1] = termloop.NewText(0, 7, "", termloop.ColorCyan, 0)
+	g.textHint[2] = termloop.NewText(0, 8, "Prenu kaj kraĉu per k.", termloop.ColorCyan, 0)
+	textLevel.AddEntity(g.textHint[0])
+	textLevel.AddEntity(g.textHint[1])
+	textLevel.AddEntity(g.textHint[2])
 
 	level.AddEntity(textLevel)
 
