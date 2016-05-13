@@ -215,7 +215,7 @@ func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame 
 
 	g.textHint[0] = termloop.NewText(0, 6, "Movu per h and l.", termloop.ColorCyan, 0)
 	g.textHint[1] = termloop.NewText(0, 7, "", termloop.ColorCyan, 0)
-	g.textHint[2] = termloop.NewText(0, 8, "Prenu kaj kraĉu per k.", termloop.ColorCyan, 0)
+	g.textHint[2] = termloop.NewText(0, 8, "Prenu kaj kraĉu cimojn per k.", termloop.ColorCyan, 0)
 	textLevel.AddEntity(g.textHint[0])
 	textLevel.AddEntity(g.textHint[1])
 	textLevel.AddEntity(g.textHint[2])
