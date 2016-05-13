@@ -1,3 +1,6 @@
+// BUG: Spawn times don't update immediately when you level up but after the
+// next spawn.  This doesn't really seem right.
+
 package main
 
 import (
@@ -159,31 +162,34 @@ func (b *Bug) ColorEffective() Color {
 
 // CrunchGame contains a player, critters, a score, and other game state.
 type CrunchGame struct {
-	config          *CrunchConfig
-	score           int64
-	scoreThreshold  int64
-	skillLevel      uint32
-	playerPos       int
-	player          *Player
-	vines           [][]*Bug
-	pendingExplos   []image.Point
-	pendingChains   []image.Point
-	pendingMagics   []image.Point
-	rand            Rand
-	bugRate         float64
-	bugSpawnTime    time.Time
-	itemSpawnRate   float64
-	itemDespawnRate float64
-	itemSpawnTime   time.Time
-	goTime          time.Time
-	multis          map[*Bug]struct{}
-	multisTime      time.Time
-	showingGameOver bool
-	textScore       *termloop.Text
-	textLevel       *termloop.Text
-	textHint        [3]*termloop.Text
-	textGameOver    [2]*termloop.Text
-	level           *termloop.BaseLevel
+	config            *CrunchConfig
+	score             int64
+	scoreThreshold    int64
+	skillLevel        uint32
+	playerPos         int
+	player            *Player
+	vines             [][]*Bug
+	pendingExplos     []image.Point
+	pendingChains     []image.Point
+	pendingMagics     []image.Point
+	rand              Rand
+	bugSpawnInit      bool
+	bugSpawnInitRem   int
+	bugSpawnInitDelay time.Duration
+	bugRate           float64
+	bugSpawnTime      time.Time
+	itemSpawnRate     float64
+	itemDespawnRate   float64
+	itemSpawnTime     time.Time
+	goTime            time.Time
+	multis            map[*Bug]struct{}
+	multisTime        time.Time
+	showingGameOver   bool
+	textScore         *termloop.Text
+	textLevel         *termloop.Text
+	textHint          [3]*termloop.Text
+	textGameOver      [2]*termloop.Text
+	level             *termloop.BaseLevel
 }
 
 // NewCrunchGame initializes a new CrunchGame.
@@ -259,10 +265,22 @@ func (g *CrunchGame) calcItemSpawnTime() {
 }
 
 func (g *CrunchGame) calcBugSpawnTime() {
-	g.bugSpawnTime = g.bugSpawnTime.Add(time.Duration(float64(time.Second) * g.rand.ExpFloat64() * g.bugRate))
+	// board initialization has completed -- enter the normal code path.
+	if g.bugSpawnInitRem == 0 {
+		g.bugSpawnTime = g.bugSpawnTime.Add(time.Duration(float64(time.Second) * g.rand.ExpFloat64() * g.bugRate))
+		return
+	}
+
+	// unknown number of bugs to spawn initially
+	if g.bugSpawnInitDelay == 0 {
+		g.bugSpawnTime = g.bugSpawnTime.Add(time.Second)
+		return
+	}
+
+	g.bugSpawnTime = g.bugSpawnTime.Add(g.bugSpawnInitDelay)
 }
 
-func (g *CrunchGame) updateDifficulty() {
+func (g *CrunchGame) updateDifficulty() bool {
 	levelup := false
 	for g.scoreThreshold >= 0 && g.score >= g.scoreThreshold {
 		levelup = true
@@ -270,12 +288,23 @@ func (g *CrunchGame) updateDifficulty() {
 		g.scoreThreshold = g.config.Difficulty.NextLevel(int(g.skillLevel))
 	}
 	if levelup {
+		log.Printf("level=%d", g.skillLevel)
+		diff := g.config.Difficulty
 		g.textLevel.SetText(fmt.Sprint(g.skillLevel))
-		g.bugRate = g.config.Difficulty.BugRate(int(g.skillLevel))
-		spawn, despawn := g.config.Difficulty.ItemRate(int(g.skillLevel))
+		g.bugRate = diff.BugRate(int(g.skillLevel))
+		spawn, despawn := diff.ItemRate(int(g.skillLevel))
 		g.itemSpawnRate = spawn
 		g.itemDespawnRate = despawn
+		if !g.bugSpawnInit {
+			g.bugSpawnInit = true
+			g.bugSpawnInitRem = diff.NumBugInit()
+			if g.bugSpawnInitRem == 0 {
+				g.bugSpawnInitRem = 3
+			}
+			g.bugSpawnInitDelay = time.Duration(float64(time.Second) * diff.BugRateInit())
+		}
 	}
+	return levelup
 }
 
 func (g *CrunchGame) colX(i int) int {
@@ -367,48 +396,62 @@ func (g *CrunchGame) assignRune(bug *Bug) rune {
 }
 
 func (g *CrunchGame) spawnBugs() {
+	// the board state is initialized by rapidly spawning single bugs before
+	// bugs start coming in more predictable waves.
+	if g.bugSpawnInitRem > 0 {
+		log.Printf("INIT SPAWN")
+		g.bugSpawnInitRem--
+		g.spawnBugOnVine(g.rand.Intn(len(g.vines)))
+		return
+	}
+
+	log.Printf("ROW SPAWN")
 	// for now we do something simple and spawn bugs in all rows simultaneously
 	for i := range g.vines {
-		g.vines[i] = g.vines[i][:len(g.vines[i])+1]
-		copy(g.vines[i][1:], g.vines[i][0:]) // shift bugs "down"
-		g.vines[i][0] = g.randomBug()
-		g.vines[i][0].entity = termloop.NewEntity(0, 0, 1, 1)
-		if g.vines[i][0].Color == ColorMulti {
-			g.multis[g.vines[i][0]] = struct{}{}
-			g.vines[i][0].entity.SetCell(0, 0, &termloop.Cell{
-				Fg: defaultColorMap.Color(g.randMultiColor()),
-				Ch: g.vines[i][0].Rune,
-			})
-		} else {
-			g.vines[i][0].entity.SetCell(0, 0, &termloop.Cell{
-				Fg: defaultColorMap.Color(g.vines[i][0].Color),
-				Ch: g.vines[i][0].Rune,
-			})
+		g.spawnBugOnVine(i)
+	}
+}
+
+func (g *CrunchGame) spawnBugOnVine(i int) {
+	g.vines[i] = g.vines[i][:len(g.vines[i])+1]
+	copy(g.vines[i][1:], g.vines[i][0:]) // shift bugs "down"
+	g.vines[i][0] = g.randomBug()
+	g.vines[i][0].entity = termloop.NewEntity(0, 0, 1, 1)
+	if g.vines[i][0].Color == ColorMulti {
+		g.multis[g.vines[i][0]] = struct{}{}
+		g.vines[i][0].entity.SetCell(0, 0, &termloop.Cell{
+			Fg: defaultColorMap.Color(g.randMultiColor()),
+			Ch: g.vines[i][0].Rune,
+		})
+	} else {
+		g.vines[i][0].entity.SetCell(0, 0, &termloop.Cell{
+			Fg: defaultColorMap.Color(g.vines[i][0].Color),
+			Ch: g.vines[i][0].Rune,
+		})
+	}
+	g.level.AddEntity(g.vines[i][0].entity)
+	cx := g.colX(i)
+	size := g.config.boardSize()
+	for j := range g.vines[i] {
+		y := size.Y
+		if j < g.config.ColDepth {
+			y = 1 + j
 		}
-		g.level.AddEntity(g.vines[i][0].entity)
-		cx := g.colX(i)
-		size := g.config.boardSize()
-		for j := range g.vines[i] {
-			y := size.Y
-			if j < g.config.ColDepth {
-				y = 1 + j
-			}
-			g.vines[i][j].entity.SetPosition(cx, y)
+		g.vines[i][j].entity.SetPosition(cx, y)
+	}
+	for k := range g.pendingExplos {
+		if g.pendingExplos[k].X == i {
+			g.pendingExplos[k].Y++
 		}
-		for k := range g.pendingExplos {
-			if g.pendingExplos[k].X == i {
-				g.pendingExplos[k].Y++
-			}
+	}
+	for k := range g.pendingMagics {
+		if g.pendingMagics[k].X == i {
+			g.pendingMagics[k].Y++
 		}
-		for k := range g.pendingMagics {
-			if g.pendingMagics[k].X == i {
-				g.pendingMagics[k].Y++
-			}
-		}
-		for k := range g.pendingChains {
-			if g.pendingChains[k].X == i {
-				g.pendingChains[k].Y++
-			}
+	}
+	for k := range g.pendingChains {
+		if g.pendingChains[k].X == i {
+			g.pendingChains[k].Y++
 		}
 	}
 }
@@ -466,7 +509,6 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 			g.bugSpawnTime = now
 			g.spawnBugs()
 			g.calcBugSpawnTime()
-			log.Printf("SPAWN: %v", g.bugSpawnTime)
 		}
 		g.textLevel.SetText(fmt.Sprint(g.skillLevel))
 		g.textScore.SetText(fmt.Sprint(g.score))
@@ -480,6 +522,9 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 		log.Printf("triggering explosions")
 		g.triggerExplosions()
 	}
+
+	g.updateDifficulty()
+
 	g.level.Draw(screen)
 }
 
@@ -873,7 +918,7 @@ func (s *simpleDifficulty) NumBugInit() int {
 }
 
 func (s *simpleDifficulty) BugRateInit() float64 {
-	return 0.5
+	return 0.3
 }
 
 func (s *simpleDifficulty) BugRate(lvl int) float64 {
