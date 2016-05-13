@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"time"
@@ -13,6 +14,7 @@ import (
 
 // CrunchConfig defines the crunching board.
 type CrunchConfig struct {
+	Difficulty       Difficulty
 	NumCol           int
 	ColVSpace        int
 	ColSpace         int
@@ -40,6 +42,7 @@ func main() {
 	log.SetOutput(logf)
 
 	config := &CrunchConfig{
+		Difficulty:       &simpleDifficulty{},
 		NumCol:           6,
 		ColSpace:         2,
 		ColDepth:         10,
@@ -158,7 +161,8 @@ func (b *Bug) ColorEffective() Color {
 type CrunchGame struct {
 	config          *CrunchConfig
 	score           int64
-	skilllevel      uint32
+	scoreThreshold  int64
+	skillLevel      uint32
 	playerPos       int
 	player          *Player
 	vines           [][]*Bug
@@ -166,7 +170,12 @@ type CrunchGame struct {
 	pendingChains   []image.Point
 	pendingMagics   []image.Point
 	rand            Rand
-	spawnTime       time.Time
+	bugRate         float64
+	bugSpawnTime    time.Time
+	itemSpawnRate   float64
+	itemDespawnRate float64
+	itemSpawnTime   time.Time
+	goTime          time.Time
 	multis          map[*Bug]struct{}
 	multisTime      time.Time
 	showingGameOver bool
@@ -179,11 +188,14 @@ type CrunchGame struct {
 
 // NewCrunchGame initializes a new CrunchGame.
 func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame {
+	now := time.Now()
 	g := &CrunchGame{
-		config: config,
-		rand:   defaultRand(),
-		multis: make(map[*Bug]struct{}),
-		level:  level,
+		config:        config,
+		rand:          defaultRand(),
+		multis:        make(map[*Bug]struct{}),
+		level:         level,
+		bugSpawnTime:  now,
+		itemSpawnTime: now,
 	}
 	g.vines = make([][]*Bug, config.NumCol)
 	for i := range g.vines {
@@ -235,7 +247,35 @@ func NewCrunchGame(config *CrunchConfig, level *termloop.BaseLevel) *CrunchGame 
 	g.player.entity.SetCell(0, 0, g.player.cell())
 	g.level.AddEntity(g.player.entity)
 
+	g.updateDifficulty()
+	g.calcBugSpawnTime()
+	g.calcItemSpawnTime()
+
 	return g
+}
+
+func (g *CrunchGame) calcItemSpawnTime() {
+	g.itemSpawnTime = g.itemSpawnTime.Add(time.Duration(float64(time.Second) * g.rand.ExpFloat64() * g.itemSpawnRate))
+}
+
+func (g *CrunchGame) calcBugSpawnTime() {
+	g.bugSpawnTime = g.bugSpawnTime.Add(time.Duration(float64(time.Second) * g.rand.ExpFloat64() * g.bugRate))
+}
+
+func (g *CrunchGame) updateDifficulty() {
+	levelup := false
+	for g.scoreThreshold >= 0 && g.score >= g.scoreThreshold {
+		levelup = true
+		g.skillLevel++
+		g.scoreThreshold = g.config.Difficulty.NextLevel(int(g.skillLevel))
+	}
+	if levelup {
+		g.textLevel.SetText(fmt.Sprint(g.skillLevel))
+		g.bugRate = g.config.Difficulty.BugRate(int(g.skillLevel))
+		spawn, despawn := g.config.Difficulty.ItemRate(int(g.skillLevel))
+		g.itemSpawnRate = spawn
+		g.itemDespawnRate = despawn
+	}
 }
 
 func (g *CrunchGame) colX(i int) int {
@@ -410,8 +450,8 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 	twinkle := true
 
 	if g.gameOver() {
-		if now.Sub(g.spawnTime) > time.Second {
-			g.spawnTime = now
+		if now.Sub(g.goTime) > time.Second {
+			g.goTime = now
 			if g.showingGameOver {
 				g.level.RemoveEntity(g.textGameOver[0])
 				g.level.RemoveEntity(g.textGameOver[1])
@@ -422,11 +462,13 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 			g.showingGameOver = !g.showingGameOver
 		}
 	} else {
-		if now.Sub(g.spawnTime) > 2*time.Second {
-			g.spawnTime = now
+		if now.Sub(g.bugSpawnTime) >= 0 {
+			g.bugSpawnTime = now
 			g.spawnBugs()
+			g.calcBugSpawnTime()
+			log.Printf("SPAWN: %v", g.bugSpawnTime)
 		}
-		g.textLevel.SetText(fmt.Sprint(g.skilllevel))
+		g.textLevel.SetText(fmt.Sprint(g.skillLevel))
 		g.textScore.SetText(fmt.Sprint(g.score))
 	}
 	if twinkle && now.Sub(g.multisTime) > 100*time.Millisecond {
@@ -811,4 +853,67 @@ func cell(c rune) *termloop.Cell {
 // tested more easily.
 type Rand interface {
 	Intn(n int) int
+	ExpFloat64() float64
+}
+
+type simpleDifficulty struct{}
+
+func (s *simpleDifficulty) NextLevel(lvl int) int64 {
+	if lvl <= 0 {
+		return 0
+	}
+	if lvl < 63 {
+		return 1 << uint(lvl)
+	}
+	return -1
+}
+
+func (s *simpleDifficulty) NumBugInit() int {
+	return 12
+}
+
+func (s *simpleDifficulty) BugRateInit() float64 {
+	return 0.5
+}
+
+func (s *simpleDifficulty) BugRate(lvl int) float64 {
+	const initialRate = 5 // about every 5 seconds
+	const baseReduction = 0.95
+	return initialRate * math.Pow(baseReduction, float64(lvl))
+}
+
+func (s *simpleDifficulty) ItemRate(lvl int) (spawn, despawn float64) {
+	const initialSpawnRate = 10  // about every 10 seconds
+	const initialDespawnRate = 5 // about 5 seconds
+	const baseSpawnReduction = 0.90
+	const baseDespawnReduction = 0.96
+	spawn = initialSpawnRate * math.Pow(baseSpawnReduction, float64(lvl))
+	despawn = initialDespawnRate * math.Pow(baseDespawnReduction, float64(lvl))
+	return spawn, despawn
+}
+
+// Difficulty controls how the game difficulty scales with the player's score.
+type Difficulty interface {
+	// NumBugInit returns the number of bugs to initializer the game with.
+	NumBugInit() int
+
+	// BugRateInit returns a constant amount of time between bug spawns during
+	// initialization.
+	BugRateInit() float64
+
+	// NextLevel returns the total score required to achive the next level.
+	NextLevel(lvl int) int64
+
+	// BugRate returns the expected number of seconds between individual bug
+	// spawns for the current level.  An exponential distribution will
+	// determine the actual duration between each spawn.
+	BugRate(lvl int) float64
+
+	// ItemRate returns the expected number of seconds between individual item
+	// spawns for the current level and the expected number of seconds for a
+	// spawned item to despawn.  An exponential distribution will determine the
+	// actual duration between each spawn.  Another exponential distribution
+	// determins the duration each spawn exists.  Multiple items may exist at
+	// the same time.
+	ItemRate(lvl int) (spawn, despawn float64)
 }
