@@ -66,6 +66,64 @@ func main() {
 	log.Printf("size: %v", size)
 
 	game := termloop.NewGame()
+	app := NewCrunchApp(game, config, scorefile)
+	app.Start()
+}
+
+// CrunchApp represents the top-level application, a session which may involve
+// multiple games.
+type CrunchApp struct {
+	game    *termloop.Game
+	screen  *termloop.Screen
+	config  *CrunchConfig
+	current *CrunchGame
+	scoreDB ScoreDB
+}
+
+// NewCrunchApp creates a new CrunchApp using a static config that can be
+// repeatedly played.
+func NewCrunchApp(game *termloop.Game, config *CrunchConfig, scores ScoreDB) *CrunchApp {
+	app := &CrunchApp{
+		game:    game,
+		config:  config,
+		scoreDB: scores,
+	}
+
+	app.current = app.createNewGame()
+
+	game.Screen().AddEntity(app)
+
+	return app
+}
+
+// Start starts the application/game.
+func (app *CrunchApp) Start() {
+	app.game.Start()
+}
+
+// Draw implements termloop.Drawable
+func (app *CrunchApp) Draw(screen *termloop.Screen) {
+	app.current.Draw(screen)
+}
+
+// Tick implements termloop.Drawable
+func (app *CrunchApp) Tick(event termloop.Event) {
+	if app.current != nil && !app.current.gameOver() {
+		app.current.Tick(event)
+		return
+	}
+
+	if event.Type == termloop.EventKey { // Is it a keyboard event?
+		// Just let the old game get garbage collected, it will stop recieved
+		// events and draw calls, so the only real worry is lag in the
+		// subsequent game.
+		app.current = app.createNewGame()
+	}
+}
+
+func (app *CrunchApp) createNewGame() *CrunchGame {
+	size := app.config.boardSize()
+	log.Printf("size=[%d, %d] new game", size.X, size.Y)
 
 	level := termloop.NewBaseLevel(termloop.Cell{
 		Bg: termloop.ColorBlack,
@@ -87,19 +145,17 @@ func main() {
 	board.AddEntity(border)
 	//board.AddEntity(termloop.NewRectangle(1, 1, size.X, size.Y, termloop.ColorCyan))
 
-	for i := 0; i < config.NumCol; i++ {
-		posX := 1 + config.ColSpace + config.CritterSizeLarge/2 + i*(config.ColSpace+config.CritterSizeLarge)
-		column := termloop.NewEntity(posX, 1, 1, config.colLength())
+	for i := 0; i < app.config.NumCol; i++ {
+		posX := 1 + app.config.ColSpace + app.config.CritterSizeLarge/2 + i*(app.config.ColSpace+app.config.CritterSizeLarge)
+		column := termloop.NewEntity(posX, 1, 1, app.config.colLength())
 		column.Fill(&termloop.Cell{Fg: termloop.ColorGreen, Ch: '|'})
 		board.AddEntity(column)
 	}
 
-	crunch := NewCrunchGame(config, scorefile, board)
-
+	crunch := NewCrunchGame(app.config, app.scoreDB, board)
 	level.AddEntity(crunch)
 
-	game.Screen().SetLevel(level)
-	game.Start()
+	return crunch
 }
 
 // Color is the a color in a crunch game.
@@ -515,8 +571,6 @@ func (g *CrunchGame) randMultiColor() Color {
 
 // Draw implements termloop.Drawable
 func (g *CrunchGame) Draw(screen *termloop.Screen) {
-	g.level.Draw(screen)
-
 	now := time.Now()
 
 	twinkle := true
