@@ -231,6 +231,7 @@ func (b *Bug) ColorEffective() Color {
 // CrunchGame contains a player, critters, a score, and other game state.
 type CrunchGame struct {
 	config            *CrunchConfig
+	tutStep           int
 	score             int64
 	scoreThreshold    int64
 	skillLevel        uint32
@@ -253,9 +254,11 @@ type CrunchGame struct {
 	multis            map[*Bug]struct{}
 	multisTime        time.Time
 	showingGameOver   bool
+	dying             bool
 	textScore         *termloop.Text
 	textLevel         *termloop.Text
-	textHint          [3]*termloop.Text
+	textHintID        string
+	textHint          [4]*termloop.Text
 	textGameOver      [2]*termloop.Text
 	level             *termloop.BaseLevel
 	startTime         time.Time
@@ -314,14 +317,12 @@ func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLev
 	g.textScore = termloop.NewText(textValuePad, 4, "0", termloop.ColorWhite, 0)
 	textLevel.AddEntity(g.textScore)
 
-	g.textHint[0] = termloop.NewText(0, 6, "Movu per h kaj l.", termloop.ColorCyan, 0)
-	g.textHint[1] = termloop.NewText(0, 7, "", termloop.ColorCyan, 0)
-	g.textHint[2] = termloop.NewText(0, 8, "Prenu kaj kraĉu cimojn per k.", termloop.ColorCyan, 0)
-	textLevel.AddEntity(g.textHint[0])
-	textLevel.AddEntity(g.textHint[1])
-	textLevel.AddEntity(g.textHint[2])
-
+	g.initHint(textLevel, 0, 6)
 	level.AddEntity(textLevel)
+
+	// Set the initial hint for the game.  The basic controls hint helps new
+	// players and only shows during the beginning of the game.
+	g.setHint("controls")
 
 	g.playerPos = config.NumCol
 	g.player = &Player{
@@ -336,6 +337,37 @@ func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLev
 	g.calcItemSpawnTime()
 
 	return g
+}
+
+func (g *CrunchGame) initHint(level termloop.Level, x, y int) {
+	for i := range g.textHint {
+		g.textHint[i] = termloop.NewText(x, y+i, "", termloop.ColorCyan, 0)
+	}
+	for i := range g.textHint {
+		level.AddEntity(g.textHint[i])
+	}
+}
+
+func (g *CrunchGame) clearHint(id string) {
+	if g.textHintID != id {
+		return
+	}
+	for i := range g.textHint {
+		g.textHint[i].SetText("")
+	}
+}
+
+func (g *CrunchGame) setHint(id string) {
+	g.textHintID = id
+
+	hint, ok := hints[id]
+	if !ok {
+		hint[0] = "Unknown hint id:"
+		hint[1] = "    " + id
+	}
+	for i := range g.textHint {
+		g.textHint[i].SetText(hint[i])
+	}
 }
 
 func (g *CrunchGame) calcHighScore() *HighScore {
@@ -587,8 +619,13 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 
 	twinkle := true
 
+	if g.tutStep == 0 && g.score > 5 {
+		g.tutStep++
+		g.setHint("scoring")
+	}
 	if g.gameOver() {
 		if g.endTime.IsZero() {
+			g.setHint("continuing")
 			g.endTime = now
 		}
 		if !g.scoreWriteStarted {
@@ -640,6 +677,12 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 			g.bugSpawnTime = now
 			g.spawnBugs()
 			g.calcBugSpawnTime()
+			for i := range g.vines {
+				if len(g.vines[i]) == g.config.ColDepth {
+					g.dying = true
+					g.setHint("dying")
+				}
+			}
 		}
 		g.textLevel.SetText(fmt.Sprint(g.skillLevel))
 		g.textScore.SetText(fmt.Sprint(g.score))
@@ -652,6 +695,20 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 	if g.clearExploded() {
 		log.Printf("triggering explosions")
 		g.triggerExplosions()
+	}
+
+	if g.dying {
+		remedied := true
+		for i := range g.vines {
+			if len(g.vines[i]) == g.config.ColDepth {
+				remedied = false
+				break
+			}
+		}
+		if remedied {
+			g.dying = false
+			g.clearHint("dying")
+		}
 	}
 
 	g.updateDifficulty()
