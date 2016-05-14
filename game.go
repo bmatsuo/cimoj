@@ -1081,7 +1081,7 @@ func bugClimbs(b BugType) bool {
 }
 
 // Bug is a bug that crawls down the vines.  Bugs have distinct color.  Large
-// bugs can only eat smaller bugs of the same color.
+// bugs can only eat Small bugs.  Small bugs can only eat Gnats.
 type Bug struct {
 	Type     BugType
 	Color    Color
