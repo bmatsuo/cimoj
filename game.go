@@ -527,7 +527,7 @@ func (g *CrunchGame) grabBug(i int) bool {
 	return true
 }
 
-func (g *CrunchGame) bugEats(i, j int, other *Bug) bool {
+func (g *CrunchGame) bugEats(i, j int, other *Bug, spit bool) bool {
 	if i >= g.config.NumCol {
 		return false
 	}
@@ -555,12 +555,31 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug) bool {
 	case BugLightning, BugBomb:
 		eats = true
 	}
-
-	if bottom.Eaten >= 2 || !eats {
+	if bottom.Eaten >= 2 {
+		return false
+	}
+	if !eats {
 		return false
 	}
 
 	bottom.Eaten += 1 + other.Eaten
+	log.Printf("pos=[%d, %d] bug was eaten", i, j)
+
+	// Attempt to perform a "food-chain" with the bug above bottom
+	//
+	// BUG: This does not allow a multi-food-chain, or food chains triggered
+	// from gaps.  That may be possible in Critter Crunch.
+	if spit && g.bugEats(i, j-1, bottom, false) {
+		log.Printf("pos=[%d, %d] spit triggered a food chain", i, j)
+		g.level.RemoveEntity(bottom.entity)
+		g.vines[i][j] = nil
+		g.vines[i] = g.vines[i][:j]
+		decreasePtY(&g.pendingExplos, j)
+		decreasePtY(&g.pendingMagics, j)
+		decreasePtY(&g.pendingChains, j)
+		return true
+	}
+
 	bottom.Rune = g.assignRune(bottom)
 	bottom.entity.SetCell(0, 0, &termloop.Cell{
 		Fg: defaultColorMap.Color(bottom.ColorEffective()),
@@ -665,7 +684,7 @@ func (g *CrunchGame) clearExploded() bool {
 					g.level.RemoveEntity(g.vines[i][j].entity)
 					consumed = true
 				} else if gapstart >= 0 {
-					if g.bugEats(i, gapstart-1, g.vines[i][j]) {
+					if g.bugEats(i, gapstart-1, g.vines[i][j], false) {
 						g.level.RemoveEntity(g.vines[i][j].entity)
 						consumed = true
 					} else {
@@ -809,7 +828,7 @@ func (g *CrunchGame) spitBug(i int) bool {
 	spat := g.player.contains
 	g.player.contains = nil
 
-	if g.bugEats(i, -1, spat) {
+	if g.bugEats(i, -1, spat, true) {
 		return true
 	}
 
