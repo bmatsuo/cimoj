@@ -10,7 +10,7 @@ import (
 // CrunchConfig defines the crunching board.
 type CrunchConfig struct {
 	Player           string
-	Difficulty       Difficulty
+	Survival         SurvivalDifficulty
 	NumCol           int
 	ColVSpace        int
 	ColSpace         int

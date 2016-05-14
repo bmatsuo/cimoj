@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"image"
 	"log"
-	"math"
 	"math/rand"
 	"time"
 
@@ -119,7 +118,7 @@ func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLev
 	g.player.entity.SetCell(0, 0, g.player.cell())
 	g.level.AddEntity(g.player.entity)
 
-	g.updateDifficulty()
+	g.updateSurvivalDifficulty()
 	g.calcBugSpawnTime()
 	g.calcItemSpawnTime()
 
@@ -191,16 +190,16 @@ func (g *CrunchGame) calcBugSpawnTime() {
 	g.bugSpawnTime = g.bugSpawnTime.Add(g.bugSpawnInitDelay)
 }
 
-func (g *CrunchGame) updateDifficulty() bool {
+func (g *CrunchGame) updateSurvivalDifficulty() bool {
 	levelup := false
 	for g.scoreThreshold >= 0 && g.score >= g.scoreThreshold {
 		levelup = true
 		g.skillLevel++
-		g.scoreThreshold = g.config.Difficulty.NextLevel(int(g.skillLevel))
+		g.scoreThreshold = g.config.Survival.NextLevel(int(g.skillLevel))
 	}
 	if levelup {
 		log.Printf("level=%d", g.skillLevel)
-		diff := g.config.Difficulty
+		diff := g.config.Survival
 		g.textLevel.SetText(fmt.Sprint(g.skillLevel))
 		g.bugRate = diff.BugRate(int(g.skillLevel))
 		g.bugDistn = diff.BugDistribution(int(g.skillLevel))
@@ -250,37 +249,14 @@ func (g *CrunchGame) randomColorBug(n int) Color {
 }
 
 func (g *CrunchGame) randomColorCond(t BugType) Color {
-	possible := bugColors[t]
-	if len(possible) == 1 {
-		return possible[0]
+	if t == BugSmall || t == BugLarge {
+		return g.bugDistn.RandColor(g.rand, t)
 	}
-	roll := g.rand.Float64()
-	cumm := 0.0
-	for i := range possible {
-		cumm += g.bugDistn.BugColorProb(t, possible[i])
-		if cumm >= roll {
-			return possible[i]
-		}
-	}
-	if math.Abs(roll-cumm) < 1e-3 {
-		log.Printf("level=%d type=%v cumm=%0.5g probability distribution does not add up to one", g.skillLevel, t, cumm)
-	}
-	return ColorNone
+	return bugColors[t][0]
 }
 
 func (g *CrunchGame) randomBugType() BugType {
-	roll := g.rand.Float64()
-	cumm := 0.0
-	for typ := 0; typ < bugMax; typ++ {
-		cumm += g.bugDistn.BugTypeProb(BugType(typ))
-		if cumm >= roll {
-			return BugType(typ)
-		}
-	}
-	if math.Abs(roll-cumm) < 1e-3 {
-		log.Printf("level=%d cumm=%0.5g probability distribution does not add up to one", g.skillLevel, cumm)
-	}
-	return bugMax - 1
+	return g.bugDistn.RandBugType(g.rand)
 }
 
 func (g *CrunchGame) randomBug() *Bug {
@@ -520,7 +496,7 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 		}
 	}
 
-	g.updateDifficulty()
+	g.updateSurvivalDifficulty()
 
 	g.level.Draw(screen)
 }
@@ -920,6 +896,23 @@ func (p *Player) Tick(event termloop.Event) {
 	p.entity.Tick(event)
 }
 
+// ItemType is a classification of item that can picked up off the ground.
+type ItemType uint
+
+// ItemType constants
+const (
+	ItemMoneyXS ItemType = iota
+	ItemMoneySM
+	ItemMoneyMD
+	ItemMoneyLG
+	ItemMoneyXL
+	ItemPoison
+	ItemPushUp
+	ItemScramble
+	ItemBullet
+	ItemColor
+)
+
 var defaultColorMap = simpleColorMap{
 	ColorNone:     termloop.ColorWhite,
 	ColorMulti:    termloop.ColorWhite, // ColorMulti is not used
@@ -947,255 +940,6 @@ func (m simpleColorMap) Color(c Color) termloop.Attr {
 
 func cell(c rune) *termloop.Cell {
 	return &termloop.Cell{Ch: c}
-}
-
-// Rand wraps PRNG implementations so that behavior of randomized things can be
-// tested more easily.
-type Rand interface {
-	Intn(n int) int
-	Float64() float64
-	ExpFloat64() float64
-}
-
-type simpleDifficulty struct{}
-
-func (s *simpleDifficulty) NextLevel(lvl int) int64 {
-	if lvl <= 0 {
-		return 0
-	}
-	if lvl < 63 {
-		return 1 << uint(lvl)
-	}
-	return -1
-}
-
-func (s *simpleDifficulty) NumBugInit() int {
-	return 12
-}
-
-func (s *simpleDifficulty) BugRateInit() float64 {
-	return 0.3
-}
-
-func (s *simpleDifficulty) BugRate(lvl int) float64 {
-	const initialRate = 5 // about every 5 seconds
-	const baseReduction = 0.95
-	return initialRate * math.Pow(baseReduction, float64(lvl))
-}
-
-func (s *simpleDifficulty) ItemRate(lvl int) (spawn, despawn float64) {
-	const initialSpawnRate = 10  // about every 10 seconds
-	const initialDespawnRate = 5 // about 5 seconds
-	const baseSpawnReduction = 0.90
-	const baseDespawnReduction = 0.96
-	spawn = initialSpawnRate * math.Pow(baseSpawnReduction, float64(lvl))
-	despawn = initialDespawnRate * math.Pow(baseDespawnReduction, float64(lvl))
-	return spawn, despawn
-}
-
-func (s *simpleDifficulty) BugDistribution(lvl int) BugDistribution {
-	if lvl < 3 {
-		return &simpleDistribution{
-			&simpleTypeDistribution{
-				BugSmall:      .40,
-				BugLarge:      .40,
-				BugGnat:       .20,
-				BugMagic:      .000,
-				BugBomb:       .000,
-				BugLightning:  .000,
-				BugRock:       .000,
-				BugMultiChain: .000,
-			},
-			&simpleColorDistribution{
-				BugSmall: {ColorBug + 0: 1},
-				BugLarge: {ColorBug + 2: 1},
-			},
-		}
-	}
-	if lvl < 5 {
-		return &simpleDistribution{
-			&simpleTypeDistribution{
-				BugSmall:      .770 / 2.0,
-				BugLarge:      .770 / 2.0,
-				BugGnat:       .200,
-				BugMagic:      .000,
-				BugBomb:       .030,
-				BugLightning:  .000,
-				BugRock:       .000,
-				BugMultiChain: .000,
-			},
-			&simpleColorDistribution{
-				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
-				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
-			},
-		}
-	}
-	if lvl == 6 {
-		return &simpleDistribution{
-			&simpleTypeDistribution{
-				BugSmall:      .750 / 2.0,
-				BugLarge:      .750 / 2.0,
-				BugGnat:       .200,
-				BugMagic:      .000,
-				BugBomb:       .015,
-				BugLightning:  .015,
-				BugRock:       .010,
-				BugMultiChain: .010,
-			},
-			&simpleColorDistribution{
-				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
-				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
-			},
-		}
-	}
-	if lvl == 7 {
-		return &simpleDistribution{
-			&simpleTypeDistribution{
-				BugSmall:      .725 / 2.0,
-				BugLarge:      .725 / 2.0,
-				BugGnat:       .200,
-				BugMagic:      .010,
-				BugBomb:       .015,
-				BugLightning:  .015,
-				BugRock:       .015,
-				BugMultiChain: .010,
-			},
-			&simpleColorDistribution{
-				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
-				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
-			},
-		}
-	}
-	if lvl == 8 {
-		return &simpleDistribution{
-			&simpleTypeDistribution{
-				BugSmall:      .715 / 2.0,
-				BugLarge:      .715 / 2.0,
-				BugGnat:       .200,
-				BugMagic:      .015,
-				BugBomb:       .015,
-				BugLightning:  .015,
-				BugRock:       .015,
-				BugMultiChain: .015,
-			},
-			&simpleColorDistribution{
-				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
-				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
-			},
-		}
-	}
-	if lvl == 9 {
-		return &simpleDistribution{
-			&simpleTypeDistribution{
-				BugSmall:      .700 / 3.0,
-				BugLarge:      .700 / 3.0,
-				BugGnat:       .200,
-				BugMagic:      .02,
-				BugBomb:       .02,
-				BugLightning:  .02,
-				BugRock:       .02,
-				BugMultiChain: .02,
-			},
-			&simpleColorDistribution{
-				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
-				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
-			},
-		}
-	}
-	if lvl == 10 {
-		return &simpleDistribution{
-			&simpleTypeDistribution{
-				BugSmall:      .685 / 2.0,
-				BugLarge:      .685 / 2.0,
-				BugGnat:       .200,
-				BugMagic:      .025,
-				BugBomb:       .025,
-				BugLightning:  .025,
-				BugRock:       .025,
-				BugMultiChain: .025,
-			},
-			&simpleColorDistribution{
-				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
-				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
-			},
-		}
-	}
-	return &simpleDistribution{
-		&simpleTypeDistribution{
-			BugSmall:      .67 / 2.0,
-			BugLarge:      .67 / 2.0,
-			BugGnat:       .20,
-			BugMagic:      .03,
-			BugBomb:       .03,
-			BugLightning:  .03,
-			BugRock:       .03,
-			BugMultiChain: .03,
-		},
-		&simpleColorDistribution{
-			BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
-			BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
-		},
-	}
-}
-
-type simpleDistribution struct {
-	*simpleTypeDistribution
-	*simpleColorDistribution
-}
-
-var _ *simpleDistribution = &simpleDistribution{}
-
-type simpleTypeDistribution [bugNumType]float64
-
-func (d *simpleTypeDistribution) BugTypeProb(t BugType) float64 {
-	return (*d)[t]
-}
-
-type simpleColorDistribution [bugNumType][]float64
-
-func (d *simpleColorDistribution) BugColorProb(t BugType, c Color) float64 {
-	return (*d)[t][c]
-}
-
-// Difficulty controls how the game difficulty scales with the player's score.
-type Difficulty interface {
-	// NumBugInit returns the number of bugs to initializer the game with.
-	NumBugInit() int
-
-	// BugRateInit returns a constant amount of time between bug spawns during
-	// initialization.
-	BugRateInit() float64
-
-	// BugDistribution returns the distribution of bugs and colors
-	BugDistribution(lvl int) BugDistribution
-
-	// NextLevel returns the total score required to achive the next level.
-	NextLevel(lvl int) int64
-
-	// BugRate returns the expected number of seconds between individual bug
-	// spawns for the current level.  An exponential distribution will
-	// determine the actual duration between each spawn.
-	BugRate(lvl int) float64
-
-	// ItemRate returns the expected number of seconds between individual item
-	// spawns for the current level and the expected number of seconds for a
-	// spawned item to despawn.  An exponential distribution will determine the
-	// actual duration between each spawn.  Another exponential distribution
-	// determins the duration each spawn exists.  Multiple items may exist at
-	// the same time.
-	ItemRate(lvl int) (spawn, despawn float64)
-}
-
-// BugDistribution destribes how bugs spawn on a level.
-type BugDistribution interface {
-	// BugTypeProb returns the probability of spawning a t type bug.
-	BugTypeProb(t BugType) float64
-
-	// BugColorProb returns the probability of spawning a t type bug having
-	// color c.  This can be thought of as the probability of (T, C)
-	// conditioned on T=t.  BugColorProb will only be called with types
-	// BugLarge and BugSmall.
-	BugColorProb(t BugType, c Color) float64
 }
 
 // Color is the a color in a crunch game.
