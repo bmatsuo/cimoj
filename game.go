@@ -997,9 +997,9 @@ func (s *simpleDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl < 3 {
 		return &simpleDistribution{
 			&simpleTypeDistribution{
-				BugSmall:      1.0 / 3.0,
-				BugLarge:      1.0 / 3.0,
-				BugGnat:       1.0 / 3.0,
+				BugSmall:      .40,
+				BugLarge:      .40,
+				BugGnat:       .20,
 				BugMagic:      .000,
 				BugBomb:       .000,
 				BugLightning:  .000,
@@ -1015,9 +1015,9 @@ func (s *simpleDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl < 5 {
 		return &simpleDistribution{
 			&simpleTypeDistribution{
-				BugSmall:      .970 / 3.0,
-				BugLarge:      .970 / 3.0,
-				BugGnat:       .970 / 3.0,
+				BugSmall:      .770 / 2.0,
+				BugLarge:      .770 / 2.0,
+				BugGnat:       .200,
 				BugMagic:      .000,
 				BugBomb:       .030,
 				BugLightning:  .000,
@@ -1033,9 +1033,9 @@ func (s *simpleDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl == 6 {
 		return &simpleDistribution{
 			&simpleTypeDistribution{
-				BugSmall:      .950 / 3.0,
-				BugLarge:      .950 / 3.0,
-				BugGnat:       .950 / 3.0,
+				BugSmall:      .750 / 2.0,
+				BugLarge:      .750 / 2.0,
+				BugGnat:       .200,
 				BugMagic:      .000,
 				BugBomb:       .015,
 				BugLightning:  .015,
@@ -1051,9 +1051,9 @@ func (s *simpleDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl == 7 {
 		return &simpleDistribution{
 			&simpleTypeDistribution{
-				BugSmall:      .925 / 3.0,
-				BugLarge:      .925 / 3.0,
-				BugGnat:       .925 / 3.0,
+				BugSmall:      .725 / 2.0,
+				BugLarge:      .725 / 2.0,
+				BugGnat:       .200,
 				BugMagic:      .010,
 				BugBomb:       .015,
 				BugLightning:  .015,
@@ -1069,9 +1069,9 @@ func (s *simpleDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl == 8 {
 		return &simpleDistribution{
 			&simpleTypeDistribution{
-				BugSmall:      .915 / 3.0,
-				BugLarge:      .915 / 3.0,
-				BugGnat:       .915 / 3.0,
+				BugSmall:      .715 / 2.0,
+				BugLarge:      .715 / 2.0,
+				BugGnat:       .200,
 				BugMagic:      .015,
 				BugBomb:       .015,
 				BugLightning:  .015,
@@ -1087,9 +1087,9 @@ func (s *simpleDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl == 9 {
 		return &simpleDistribution{
 			&simpleTypeDistribution{
-				BugSmall:      .900 / 3.0,
-				BugLarge:      .900 / 3.0,
-				BugGnat:       .900 / 3.0,
+				BugSmall:      .700 / 3.0,
+				BugLarge:      .700 / 3.0,
+				BugGnat:       .200,
 				BugMagic:      .02,
 				BugBomb:       .02,
 				BugLightning:  .02,
@@ -1105,9 +1105,9 @@ func (s *simpleDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl == 10 {
 		return &simpleDistribution{
 			&simpleTypeDistribution{
-				BugSmall:      .885 / 3.0,
-				BugLarge:      .885 / 3.0,
-				BugGnat:       .885 / 3.0,
+				BugSmall:      .685 / 2.0,
+				BugLarge:      .685 / 2.0,
+				BugGnat:       .200,
 				BugMagic:      .025,
 				BugBomb:       .025,
 				BugLightning:  .025,
@@ -1122,9 +1122,9 @@ func (s *simpleDifficulty) BugDistribution(lvl int) BugDistribution {
 	}
 	return &simpleDistribution{
 		&simpleTypeDistribution{
-			BugSmall:      .87 / 3.0,
-			BugLarge:      .87 / 3.0,
-			BugGnat:       .87 / 3.0,
+			BugSmall:      .67 / 2.0,
+			BugLarge:      .67 / 2.0,
+			BugGnat:       .20,
 			BugMagic:      .03,
 			BugBomb:       .03,
 			BugLightning:  .03,
