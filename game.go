@@ -778,7 +778,14 @@ func (g *CrunchGame) explosionChain(i, j int, c Color) {
 	if g.vines[i][j].Exploded {
 		return
 	}
-	if g.vines[i][j].Color != c {
+
+	// Check the input color and adjust the color for recursive calls if
+	// necessary.
+	if g.vines[i][j].Color == ColorMulti {
+		c = ColorMulti
+	} else if c == ColorMulti {
+		c = g.vines[i][j].Color
+	} else if g.vines[i][j].Color != c {
 		return
 	}
 
