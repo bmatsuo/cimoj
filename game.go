@@ -260,14 +260,29 @@ func (g *CrunchGame) randomBug() *Bug {
 		return g.createBug(BugLarge, g.randomColorBug(2))
 	}
 
-	roll -= 30
+	roll -= 25
 	if roll < 0 {
 		return g.createBug(BugGnat, ColorNone)
 	}
 
-	roll -= 8
+	roll -= 4
 	if roll < 0 {
 		return g.createBug(BugBomb, ColorBomb)
+	}
+
+	roll -= 4
+	if roll < 0 {
+		return g.createBug(BugLightning, ColorBomb)
+	}
+
+	roll -= 3
+	if roll < 0 {
+		return g.createBug(BugMultiChain, ColorMulti)
+	}
+
+	roll -= 2
+	if roll < 0 {
+		return g.createBug(BugRock, ColorNone)
 	}
 
 	return g.createBug(BugMagic, ColorMulti)
@@ -302,9 +317,18 @@ func (g *CrunchGame) assignRune(bug *Bug) rune {
 			return '&'
 		}
 		return '8'
+	case BugLightning:
+		if bug.Eaten > 0 {
+			return 'X'
+		}
+		return 'x'
+	case BugRock:
+		return '▀'
+	case BugMultiChain:
+		return '*'
 	case BugMagic:
 		if bug.Eaten > 0 {
-			return '*'
+			return '%'
 		}
 		return '+'
 	}
@@ -542,7 +566,7 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug) bool {
 	bottom := g.vines[i][j]
 
 	// Determine if the bottom bug can eat the incoming bug.  Large bugs eat
-	// small bugs.  Small bugs eat gnats.  Magic bugs and bomb bugs eat
+	// small bugs.  Small bugs eat gnats.  Lightning bugs and bomb bugs eat
 	// anything.
 	eats := false
 	switch bottom.Type {
@@ -554,7 +578,7 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug) bool {
 		if other.Type == BugGnat {
 			eats = true
 		}
-	case BugMagic, BugBomb:
+	case BugLightning, BugBomb:
 		eats = true
 	}
 
@@ -570,7 +594,7 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug) bool {
 	})
 
 	if bottom.Eaten >= 2 {
-		if bottom.Type == BugBomb {
+		if bottom.Type == BugBomb || bottom.Type == BugLightning {
 			g.pendingExplos = append(g.pendingExplos, image.Pt(i, j))
 		} else if bottom.Type == BugMagic {
 			bottom.EColor = other.Color
@@ -713,6 +737,7 @@ func (g *CrunchGame) bombChain(i, j int) {
 	})
 	g.score++
 
+	log.Printf("pos=[%d, %d] exploded by bomb", i, j)
 	if g.vines[i][j].Type == BugBomb {
 		log.Printf("pos=[%d, %d] bomb exploded", i, j)
 		// Explode nearby bugs; out of bounds accesses are handled in the call.
@@ -725,8 +750,15 @@ func (g *CrunchGame) bombChain(i, j int) {
 				g.bombChain(ik, jk)
 			}
 		}
-	} else {
-		log.Printf("pos=[%d, %d] exploded by bomb", i, j)
+	} else if g.vines[i][j].Type == BugLightning {
+		g.bombChain(i+1, j+1)
+		g.bombChain(i+1, j-1)
+		g.bombChain(i-1, j+1)
+		g.bombChain(i-1, j-1)
+		g.bombChain(i+2, j+2)
+		g.bombChain(i+2, j-2)
+		g.bombChain(i-2, j+2)
+		g.bombChain(i-2, j-2)
 	}
 }
 
@@ -1005,6 +1037,9 @@ const (
 	BugGnat
 	BugMagic
 	BugBomb
+	BugLightning
+	BugRock
+	BugMultiChain
 )
 
 // Bug is a bug that crawls down the vines.  Bugs have distinct color.  Large
