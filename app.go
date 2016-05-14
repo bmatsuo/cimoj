@@ -36,6 +36,7 @@ type CrunchApp struct {
 	game    *termloop.Game
 	screen  *termloop.Screen
 	config  *CrunchConfig
+	menu    *CrunchMenu
 	current *CrunchGame
 	scoreDB ScoreDB
 }
@@ -48,8 +49,7 @@ func NewCrunchApp(game *termloop.Game, config *CrunchConfig, scores ScoreDB) *Cr
 		config:  config,
 		scoreDB: scores,
 	}
-
-	app.current = app.createNewGame()
+	app.menu = NewCrunchMenu()
 
 	game.Screen().AddEntity(app)
 
@@ -63,7 +63,11 @@ func (app *CrunchApp) Start() {
 
 // Draw implements termloop.Drawable
 func (app *CrunchApp) Draw(screen *termloop.Screen) {
-	app.current.Draw(screen)
+	if app.current != nil {
+		app.current.Draw(screen)
+		return
+	}
+	app.menu.Draw(screen)
 }
 
 // Tick implements termloop.Drawable
@@ -76,12 +80,24 @@ func (app *CrunchApp) Tick(event termloop.Event) {
 	if event.Type == termloop.EventKey { // Is it a keyboard event?
 		switch event.Key {
 		case termloop.KeyEnter:
-			// Just let the old game get garbage collected, it will stop
-			// recieved events and draw calls, so the only real worry is lag in
-			// the subsequent game.
-			app.current = app.createNewGame()
+			if app.current != nil {
+				// Just let the old game get garbage collected, it will stop
+				// recieved events and draw calls, so the only real worry is lag in
+				// the subsequent game.
+				app.current = app.createNewGame()
+				return
+			}
+			menuItem, _ := app.menu.GetSelection()
+			if menuItem == 0 {
+				app.current = app.createNewGame()
+			}
+			return
 		}
 	}
+
+	// Pass the keypress onto the menu when the app has not intercepted it by
+	// this point.
+	app.menu.Tick(event)
 }
 
 func (app *CrunchApp) createNewGame() *CrunchGame {
