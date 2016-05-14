@@ -43,13 +43,18 @@ type CrunchApp struct {
 
 // NewCrunchApp creates a new CrunchApp using a static config that can be
 // repeatedly played.
-func NewCrunchApp(game *termloop.Game, config *CrunchConfig, scores ScoreDB) *CrunchApp {
+func NewCrunchApp(game *termloop.Game, config *CrunchConfig, scores ScoreDB, showMenu bool) *CrunchApp {
 	app := &CrunchApp{
 		game:    game,
 		config:  config,
 		scoreDB: scores,
 	}
-	app.menu = NewCrunchMenu(config)
+
+	if showMenu {
+		app.menu = NewCrunchMenu(config)
+	} else {
+		app.current = app.createNewGame()
+	}
 
 	game.Screen().AddEntity(app)
 
