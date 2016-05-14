@@ -11,6 +11,10 @@ reciproke.
 Maltaj dankoj al Capybara Games pro kreas Critter Crunch.  Ili miritas fanojn
 kaj subtenon.
 
+Ankaŭ dankoj al la projektojn [termloop](https://github.com/JoelOtter/termloop)
+kaj [termbox](https://github.com/nsf/termbox).  Tiuj projektoj tre helpis
+ebligi la kreadon de Cimoj.
+
 #Permesiloj
 
 Copyright (c) 2016 Bryan Matsuo
