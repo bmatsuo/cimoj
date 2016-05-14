@@ -8,6 +8,7 @@ import (
 	"image"
 	"log"
 	"math/rand"
+	"sort"
 	"time"
 
 	"github.com/JoelOtter/termloop"
@@ -960,6 +961,159 @@ func (g *CrunchGame) Tick(event termloop.Event) {
 nomove: // this label is kind of a hack
 }
 
+// Ground holds items that the player can pick up.
+type Ground struct {
+	config   *CrunchConfig
+	x        int
+	y        int
+	slots    [][]*Item
+	entities []*termloop.Entity
+}
+
+var _ termloop.Drawable = &Ground{}
+
+func newGround(config *CrunchConfig, x, y int) *Ground {
+	g := &Ground{config: config}
+	g.init()
+	return g
+}
+
+func (g *Ground) takeItems(now time.Time, i int) []*Item {
+	var k int
+	for j := range g.slots[i] {
+		if now.After(g.slots[i][j].Despawn) {
+			continue
+		}
+		g.slots[i][k] = g.slots[i][j]
+		k++
+	}
+	items := make([]*Item, k)
+	copy(items, g.slots[i])
+	for j := range g.slots[i] {
+		g.slots[i][j] = nil
+	}
+	g.slots[i] = g.slots[i][:0]
+	return items
+}
+
+func (g *Ground) despawnItems(now time.Time) {
+	for i := range g.slots {
+		var k int
+		for j := range g.slots[i] {
+			if now.After(g.slots[i][j].Despawn) {
+				continue
+			}
+			g.slots[i][k] = g.slots[i][j]
+			g.slots[i][j] = nil
+			k++
+		}
+		if k != len(g.slots) {
+			g.slots[i] = g.slots[i][:k]
+			g.update(i)
+		}
+	}
+}
+
+func (g *Ground) insertItem(now time.Time, i int, item *Item) {
+	items := g.slots[i]
+	defer func() {
+		g.slots[i] = items
+	}()
+
+	special := item.Type.IsSpecial()
+
+	var k int
+	for j := 0; j < len(items); j++ {
+		if now.After(items[j].Despawn) {
+			continue
+		}
+		if special && items[j].Type.IsSpecial() {
+			continue
+		}
+		items[k] = items[j]
+		items[j] = nil
+		k++
+	}
+	items = items[:k]
+	items = append(items, item)
+
+	g.update(i)
+}
+
+func (g *Ground) init() {
+	g.slots = make([][]*Item, g.config.NumCol)
+	for i := range g.slots {
+		g.slots[i] = make([]*Item, 0, g.config.ColDepth)
+	}
+	g.entities = make([]*termloop.Entity, g.config.NumCol)
+	for i := range g.entities {
+		g.entities[i] = termloop.NewEntity(g.x+i, g.y, 1, 1)
+	}
+	for i := range g.slots {
+		g.update(i)
+	}
+}
+
+func (g *Ground) update(i int) {
+	g.entities[i].SetCell(0, 0, g.cell(i))
+}
+
+func (g *Ground) cell(i int) *termloop.Cell {
+	if len(g.slots[i]) == 0 {
+		return &termloop.Cell{
+			Fg: termloop.ColorWhite,
+			Bg: termloop.ColorBlack,
+			Ch: ' ',
+		}
+	}
+	return &termloop.Cell{
+		Fg: defaultColorMap.Color(g.cellFg(i)),
+		Bg: defaultColorMap.Color(g.cellBg(i)),
+		Ch: g.cellRune(i),
+	}
+}
+
+func (g *Ground) cellRune(i int) rune {
+	items := g.slots[i]
+	sort.Sort(&itemsByPrecedence{itemsRunePrecedence, items})
+	return itemsRunes[items[len(items)-1].Type]
+}
+
+func (g *Ground) cellFg(i int) Color {
+	items := g.slots[i]
+	sort.Sort(&itemsByPrecedence{itemsFgPrecedence, items})
+	// BUG:
+	return ColorNone
+}
+
+func (g *Ground) cellBg(i int) Color {
+	items := g.slots[i]
+	sort.Sort(&itemsByPrecedence{itemsBgPrecedence, items})
+	for j := range g.slots[i] {
+		if g.slots[i][j].Type.IsPoison() {
+			return ColorPoison
+		}
+		if g.slots[i][j].Type.IsMoney() {
+			return ColorMoney
+		}
+	}
+	return ColorNone
+}
+
+// Draw implements termloop.Drawable.
+func (g *Ground) Draw(screen *termloop.Screen) {
+	for i := range g.entities {
+		g.entities[i].Draw(screen)
+	}
+}
+
+// Tick implements termloop.Drawable.
+func (g *Ground) Tick(event termloop.Event) {
+	for i := range g.entities {
+		g.entities[i].Tick(event)
+	}
+}
+
 // Player is a player in a CrunchGame
 type Player struct {
 	config         *CrunchConfig
@@ -1076,6 +1230,61 @@ func (item ItemType) IsPoison() bool {
 // IsSpecial returns true if item is a special item.
 func (item ItemType) IsSpecial() bool {
 	return item >= ItemPushUp
+}
+
+type itemsByPrecedence struct {
+	prec  []int
+	items []*Item
+}
+
+func (items *itemsByPrecedence) Len() int { return len(items.items) }
+func (items *itemsByPrecedence) Less(i, j int) bool {
+	return items.prec[items.items[i].Type] < items.prec[items.items[j].Type]
+}
+func (items *itemsByPrecedence) Swap(i, j int) {
+	items.items[i], items.items[j] = items.items[j], items.items[i]
+}
+
+var itemsRunePrecedence = []int{
+	ItemMoneyXS:  1,
+	ItemMoneySM:  2,
+	ItemMoneyMD:  3,
+	ItemMoneyLG:  4,
+	ItemMoneyXL:  5,
+	ItemPoison:   0,
+	ItemRowClear: 6,
+	ItemPushUp:   7,
+	ItemBullet:   8,
+	ItemScramble: 9,
+	ItemRecolor:  10,
+}
+
+var itemsFgPrecedence = []int{
+	ItemMoneyXS:  6,
+	ItemMoneySM:  7,
+	ItemMoneyMD:  8,
+	ItemMoneyLG:  9,
+	ItemMoneyXL:  10,
+	ItemPoison:   0,
+	ItemRowClear: 1,
+	ItemPushUp:   2,
+	ItemBullet:   3,
+	ItemScramble: 4,
+	ItemRecolor:  5,
+}
+
+var itemsBgPrecedence = []int{
+	ItemMoneyXS:  6,
+	ItemMoneySM:  7,
+	ItemMoneyMD:  8,
+	ItemMoneyLG:  9,
+	ItemMoneyXL:  10,
+	ItemPoison:   0,
+	ItemRowClear: 1,
+	ItemPushUp:   2,
+	ItemBullet:   3,
+	ItemScramble: 4,
+	ItemRecolor:  5,
 }
 
 var itemsRunes = []rune{
