@@ -250,42 +250,47 @@ func (g *CrunchGame) randomColorBug(n int) Color {
 func (g *CrunchGame) randomBug() *Bug {
 	roll := g.rand.Intn(100) + 1
 
-	roll -= 30
-	if roll < 0 {
+	roll -= 31
+	if roll <= 0 {
 		return g.createBug(BugSmall, g.randomColorBug(2))
 	}
 
-	roll -= 30
-	if roll < 0 {
-		return g.createBug(BugLarge, g.randomColorBug(2))
+	roll -= 31
+	if roll <= 0 {
+		return g.createBug(BugLarge, 2+g.randomColorBug(2))
 	}
 
-	roll -= 25
-	if roll < 0 {
+	roll -= 31
+	if roll <= 0 {
 		return g.createBug(BugGnat, ColorNone)
 	}
 
-	roll -= 4
-	if roll < 0 {
+	roll -= 2
+	if roll <= 0 {
 		return g.createBug(BugBomb, ColorBomb)
 	}
 
-	roll -= 4
-	if roll < 0 {
+	roll -= 2
+	if roll <= 0 {
 		return g.createBug(BugLightning, ColorBomb)
 	}
 
-	roll -= 3
-	if roll < 0 {
+	roll -= 1
+	if roll <= 0 {
 		return g.createBug(BugMultiChain, ColorMulti)
 	}
 
-	roll -= 2
-	if roll < 0 {
+	roll -= 1
+	if roll <= 0 {
 		return g.createBug(BugRock, ColorNone)
 	}
 
-	return g.createBug(BugMagic, ColorMulti)
+	roll -= 1
+	if roll <= 0 {
+		return g.createBug(BugMagic, ColorMulti)
+	}
+
+	panic("bug distribution is bad")
 }
 
 func (g *CrunchGame) createBug(typ BugType, c Color) *Bug {
@@ -568,7 +573,7 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug) bool {
 	eats := false
 	switch bottom.Type {
 	case BugLarge:
-		if other.Type == BugSmall && other.Color == bottom.Color {
+		if other.Type == BugSmall {
 			eats = true
 		}
 	case BugSmall:
@@ -924,10 +929,12 @@ var defaultColorMap = simpleColorMap{
 	ColorMulti:    termloop.ColorWhite, // ColorMulti is not used
 	ColorBomb:     termloop.ColorRed,
 	ColorExploded: termloop.ColorBlack,
-	ColorPlayer:   termloop.ColorMagenta,
+	ColorPlayer:   termloop.ColorWhite,
 
 	ColorBug + 0: termloop.ColorYellow,
 	ColorBug + 1: termloop.ColorBlue,
+	ColorBug + 2: termloop.ColorMagenta,
+	ColorBug + 3: termloop.ColorCyan,
 }
 
 type simpleColorMap []termloop.Attr
