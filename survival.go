@@ -71,9 +71,9 @@ func (s *simpleSurvivalDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl < 3 {
 		return &simpleDistribution{
 			&bugTypeDistn{
-				BugSmall:      40,
-				BugLarge:      40,
-				BugGnat:       20,
+				BugSmall:      500,
+				BugLarge:      400,
+				BugGnat:       200,
 				BugMagic:      0,
 				BugBomb:       0,
 				BugLightning:  0,
@@ -89,9 +89,9 @@ func (s *simpleSurvivalDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl < 5 {
 		return &simpleDistribution{
 			&bugTypeDistn{
-				BugSmall:      770 / 2,
-				BugLarge:      770 / 2,
-				BugGnat:       200,
+				BugSmall:      390,
+				BugLarge:      385,
+				BugGnat:       195,
 				BugMagic:      0,
 				BugBomb:       30,
 				BugLightning:  0,
@@ -107,9 +107,9 @@ func (s *simpleSurvivalDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl == 6 {
 		return &simpleDistribution{
 			&bugTypeDistn{
-				BugSmall:      750 / 20,
-				BugLarge:      750 / 20,
-				BugGnat:       200,
+				BugSmall:      380,
+				BugLarge:      375,
+				BugGnat:       192,
 				BugMagic:      0,
 				BugBomb:       15,
 				BugLightning:  15,
@@ -125,9 +125,9 @@ func (s *simpleSurvivalDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl == 7 {
 		return &simpleDistribution{
 			&bugTypeDistn{
-				BugSmall:      726 / 2,
-				BugLarge:      726 / 2,
-				BugGnat:       200,
+				BugSmall:      373,
+				BugLarge:      363,
+				BugGnat:       190,
 				BugMagic:      10,
 				BugBomb:       15,
 				BugLightning:  15,
@@ -143,9 +143,9 @@ func (s *simpleSurvivalDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl == 8 {
 		return &simpleDistribution{
 			&bugTypeDistn{
-				BugSmall:      716 / 2,
-				BugLarge:      716 / 2,
-				BugGnat:       200,
+				BugSmall:      378,
+				BugLarge:      358,
+				BugGnat:       180,
 				BugMagic:      15,
 				BugBomb:       15,
 				BugLightning:  15,
@@ -161,9 +161,9 @@ func (s *simpleSurvivalDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl == 9 {
 		return &simpleDistribution{
 			&bugTypeDistn{
-				BugSmall:      700 / 2,
-				BugLarge:      700 / 2,
-				BugGnat:       200,
+				BugSmall:      380,
+				BugLarge:      350,
+				BugGnat:       170,
 				BugMagic:      20,
 				BugBomb:       20,
 				BugLightning:  20,
@@ -179,9 +179,9 @@ func (s *simpleSurvivalDifficulty) BugDistribution(lvl int) BugDistribution {
 	if lvl == 10 {
 		return &simpleDistribution{
 			&bugTypeDistn{
-				BugSmall:      686 / 2,
-				BugLarge:      686 / 2,
-				BugGnat:       200,
+				BugSmall:      383,
+				BugLarge:      343,
+				BugGnat:       160,
 				BugMagic:      25,
 				BugBomb:       25,
 				BugLightning:  25,
@@ -196,9 +196,9 @@ func (s *simpleSurvivalDifficulty) BugDistribution(lvl int) BugDistribution {
 	}
 	return &simpleDistribution{
 		&bugTypeDistn{
-			BugSmall:      680 / 20,
-			BugLarge:      680 / 20,
-			BugGnat:       200,
+			BugSmall:      390,
+			BugLarge:      340,
+			BugGnat:       150,
 			BugMagic:      30,
 			BugBomb:       30,
 			BugLightning:  30,
