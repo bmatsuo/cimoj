@@ -327,12 +327,9 @@ func (g *CrunchGame) assignRune(bug *Bug) rune {
 	case BugMultiChain:
 		return '*'
 	case BugMagic:
-		if bug.Eaten > 0 {
-			return '%'
-		}
-		return '+'
+		return '%'
 	}
-	return 'x'
+	return '?'
 }
 
 func (g *CrunchGame) spawnBugs() {
@@ -596,9 +593,6 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug) bool {
 	if bottom.Eaten >= 2 {
 		if bottom.Type == BugBomb || bottom.Type == BugLightning {
 			g.pendingExplos = append(g.pendingExplos, image.Pt(i, j))
-		} else if bottom.Type == BugMagic {
-			bottom.EColor = other.Color
-			g.pendingMagics = append(g.pendingMagics, image.Pt(i, j))
 		} else {
 			g.pendingChains = append(g.pendingChains, image.Pt(i, j))
 		}
@@ -612,18 +606,16 @@ func (g *CrunchGame) triggerExplosions() {
 	for _, pt := range g.pendingExplos {
 		g.bombChain(pt.X, pt.Y)
 	}
+	g.pendingExplos = g.pendingExplos[:0]
 
+domagics:
 	for _, pt := range g.pendingMagics {
 		i, j := pt.X, pt.Y
 		if g.vines[i][j].Exploded {
 			continue
 		}
 		g.vines[i][j].Exploded = true
-		g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
-			Fg: defaultColorMap.Color(ColorExploded),
-			Ch: g.vines[i][j].Rune,
-		})
-		log.Printf("pos=[%d, %d] magic exploded", i, j)
+		log.Printf("pos=[%d, %d] magic exploded color=%v", i, j, g.vines[i][j].EColor)
 		mcolor := g.vines[i][j].EColor
 		g.score++
 
@@ -641,15 +633,17 @@ func (g *CrunchGame) triggerExplosions() {
 			}
 		}
 	}
+	g.pendingMagics = g.pendingMagics[:0]
 
 	for _, pt := range g.pendingChains {
 		i, j := pt.X, pt.Y
 		g.explosionChain(i, j, g.vines[i][j].Color)
 	}
-
-	g.pendingExplos = g.pendingExplos[:0]
-	g.pendingMagics = g.pendingMagics[:0]
 	g.pendingChains = g.pendingChains[:0]
+
+	if len(g.pendingMagics) > 0 {
+		goto domagics
+	}
 }
 
 func decreasePtY(pts *[]image.Point, min int) {
@@ -776,6 +770,14 @@ func (g *CrunchGame) explosionChain(i, j int, c Color) {
 		return
 	}
 	if g.vines[i][j].Exploded {
+		return
+	}
+	if g.vines[i][j].Type != BugSmall && g.vines[i][j].Type != BugLarge && g.vines[i][j].Type != BugMultiChain {
+		if g.vines[i][j].Type == BugMagic && g.vines[i][j].EColor == ColorNone && c != ColorMulti {
+			log.Printf("pos=[%d, %d] magic triggered", i, j)
+			g.vines[i][j].EColor = c
+			g.pendingMagics = append(g.pendingMagics, image.Pt(i, j))
+		}
 		return
 	}
 
