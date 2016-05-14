@@ -896,6 +896,14 @@ func (p *Player) Tick(event termloop.Event) {
 	p.entity.Tick(event)
 }
 
+// Item is a useful item for the player.  Special items spawn on/in bugs, in
+// which case the Despawn time respresents the time until the item is
+// "digested" and disappears.
+type Item struct {
+	Type    ItemType
+	Despawn time.Time
+}
+
 // ItemType is a classification of item that can picked up off the ground.
 type ItemType uint
 
@@ -907,18 +915,51 @@ const (
 	ItemMoneyLG
 	ItemMoneyXL
 	ItemPoison
+	ItemRowClear
 	ItemPushUp
-	ItemScramble
 	ItemBullet
-	ItemColor
+	ItemScramble
+	ItemRecolor
 )
+
+// IsMoney returns true if item is a money type
+func (item ItemType) IsMoney() bool {
+	return item <= ItemMoneyXL
+}
+
+// IsPoison returns true if item is a poison type
+func (item ItemType) IsPoison() bool {
+	return item == ItemPoison
+}
+
+// IsSpecial returns true if item is a special item.
+func (item ItemType) IsSpecial() bool {
+	return item >= ItemPushUp
+}
+
+var itemsRunes = []rune{
+	ItemMoneyXS:  '¢',
+	ItemMoneySM:  '$',
+	ItemMoneyMD:  '€',
+	ItemMoneyLG:  '£',
+	ItemMoneyXL:  '◇',
+	ItemPoison:   '░',
+	ItemRowClear: '-',
+	ItemPushUp:   '^',
+	ItemBullet:   '¡',
+	ItemScramble: '#',
+	ItemRecolor:  '♥',
+}
 
 var defaultColorMap = simpleColorMap{
 	ColorNone:     termloop.ColorWhite,
 	ColorMulti:    termloop.ColorWhite, // ColorMulti is not used
 	ColorBomb:     termloop.ColorRed,
 	ColorExploded: termloop.ColorBlack,
-	ColorPlayer:   termloop.ColorWhite,
+	ColorPlayer:   termloop.ColorDefault,
+	ColorMoney:    termloop.ColorYellow,
+	ColorPoison:   termloop.ColorGreen,
+	ColorSpecial:  termloop.ColorWhite,
 
 	ColorBug + 0: termloop.ColorYellow,
 	ColorBug + 1: termloop.ColorBlue,
@@ -951,6 +992,9 @@ const (
 	ColorMulti
 	ColorBomb
 	ColorExploded
+	ColorMoney
+	ColorPoison
+	ColorSpecial
 	ColorPlayer
 	ColorBug
 )
