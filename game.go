@@ -158,11 +158,12 @@ func (g *CrunchGame) setHint(id string) {
 
 func (g *CrunchGame) calcHighScore() *HighScore {
 	return &HighScore{
-		Player: g.config.Player,
-		Score:  g.score,
-		Level:  int(g.skillLevel),
-		Start:  g.startTime,
-		End:    g.endTime,
+		GameType: "survival",
+		Player:   g.config.Player,
+		Score:    g.score,
+		Level:    int(g.skillLevel),
+		Start:    g.startTime,
+		End:      g.endTime,
 		Qual: map[string]string{
 			"GameVersion": GameVersion,
 		},

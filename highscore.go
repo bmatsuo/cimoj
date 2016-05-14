@@ -13,12 +13,13 @@ import (
 // key-value Qual that can contain any qualifying data which can be filtered on
 // later.
 type HighScore struct {
-	Player string
-	Score  int64
-	Level  int
-	Start  time.Time
-	End    time.Time
-	Qual   map[string]string
+	GameType string
+	Player   string
+	Score    int64
+	Level    int
+	Start    time.Time
+	End      time.Time
+	Qual     map[string]string
 }
 
 // ScoreDB stores high scores, possibly for several different players and
@@ -37,7 +38,7 @@ type ScoreDB interface {
 	// If an implemention cannot find n HighScore records then the located
 	// records are returned along with any error that prevented more from being
 	// located.
-	TopHighScores(n int, player string, qualpairs ...string) ([]*HighScore, error)
+	TopHighScores(n int, gametype, player string, qualpairs ...string) ([]*HighScore, error)
 }
 
 // HighScoreFile is a ScoreDB that maintains a high-score database in a flat
@@ -74,7 +75,7 @@ func (db *HighScoreFile) WriteHighScore(score *HighScore) error {
 }
 
 // TopHighScores implements HighScoreDB
-func (db *HighScoreFile) TopHighScores(n int, player string, qualpairs ...string) ([]*HighScore, error) {
+func (db *HighScoreFile) TopHighScores(n int, gametype, player string, qualpairs ...string) ([]*HighScore, error) {
 	if len(qualpairs)%2 != 0 {
 		panic("odd length qualifier pairs list")
 	}
