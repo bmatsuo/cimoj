@@ -13,62 +13,79 @@ import (
 	"github.com/JoelOtter/termloop"
 )
 
+// Game constants
+const (
+	// Do not allow spawns that are too close to each other to move a space or
+	// two and grab.
+	SpawnMinRest = 30 * time.Millisecond
+
+	// There is a perceptible amount of time between the spawn and you being
+	// able to move again.
+	StompTime  = 150 * time.Millisecond
+	StompSpawn = 10 * time.Millisecond
+	StompRest  = 50 * time.Millisecond
+)
+
 // CrunchGame contains a player, critters, a score, and other game state.
 type CrunchGame struct {
-	config            *CrunchConfig
-	tutStep           int
-	score             int64
-	scoreThreshold    int64
-	skillLevel        uint32
-	bugDistn          BugDistribution
-	playerPos         int
-	player            *Player
-	vines             [][]*Bug
-	pendingExplos     []image.Point
-	pendingChains     []image.Point
-	pendingMagics     []image.Point
-	rand              Rand
-	bugSpawnInit      bool
-	bugSpawnInitRem   int
-	bugSpawnInitDelay time.Duration
-	bugRate           float64
-	bugSpawnTime      time.Time
-	itemSpawnRate     float64
-	itemDespawnRate   float64
-	itemSpawnTime     time.Time
-	goTime            time.Time
-	multis            map[*Bug]struct{}
-	multisTime        time.Time
-	showingGameOver   bool
-	dying             bool
-	textScore         *termloop.Text
-	textLevel         *termloop.Text
-	textHintID        string
-	textHint          [4]*termloop.Text
-	textGameOver      [2]*termloop.Text
-	level             *termloop.BaseLevel
-	startTime         time.Time
-	endTime           time.Time
-	scoreDB           ScoreDB
-	scoreWriteStarted bool
-	scoreWriteResult  chan error
-	finishTime        time.Time
-	finishTimeout     time.Time
-	finished          bool
+	config             *CrunchConfig
+	tutStep            int
+	score              int64
+	scoreThreshold     int64
+	skillLevel         uint32
+	bugDistn           BugDistribution
+	playerPos          int
+	player             *Player
+	vines              [][]*Bug
+	pendingExplos      []image.Point
+	pendingChains      []image.Point
+	pendingMagics      []image.Point
+	rand               Rand
+	bugSpawnInit       bool
+	bugSpawnInitRem    int
+	bugSpawnInitDelay  time.Duration
+	bugRate            float64
+	bugSpawnTime       time.Time
+	bugSpawnContinue   time.Time
+	bugSpawnStompTime  time.Time
+	bugSpawnStompQueue int
+	itemSpawnRate      float64
+	itemDespawnRate    float64
+	itemSpawnTime      time.Time
+	goTime             time.Time
+	multis             map[*Bug]struct{}
+	multisTime         time.Time
+	showingGameOver    bool
+	dying              bool
+	textScore          *termloop.Text
+	textLevel          *termloop.Text
+	textHintID         string
+	textHint           [4]*termloop.Text
+	textGameOver       [2]*termloop.Text
+	level              *termloop.BaseLevel
+	startTime          time.Time
+	endTime            time.Time
+	scoreDB            ScoreDB
+	scoreWriteStarted  bool
+	scoreWriteResult   chan error
+	finishTime         time.Time
+	finishTimeout      time.Time
+	finished           bool
 }
 
 // NewCrunchGame initializes a new CrunchGame.
 func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLevel) *CrunchGame {
 	now := time.Now()
 	g := &CrunchGame{
-		config:        config,
-		rand:          defaultRand(),
-		multis:        make(map[*Bug]struct{}),
-		level:         level,
-		bugSpawnTime:  now,
-		itemSpawnTime: now,
-		scoreDB:       scores,
-		startTime:     now,
+		config:           config,
+		rand:             defaultRand(),
+		multis:           make(map[*Bug]struct{}),
+		level:            level,
+		bugSpawnTime:     now,
+		bugSpawnContinue: now,
+		itemSpawnTime:    now,
+		scoreDB:          scores,
+		startTime:        now,
 	}
 	g.vines = make([][]*Bug, config.NumCol)
 	for i := range g.vines {
@@ -111,12 +128,8 @@ func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLev
 	g.setHint("controls")
 
 	g.playerPos = config.NumCol
-	g.player = &Player{
-		entity: termloop.NewEntity(g.colX(g.playerPos), g.config.boardSize().Y, 1, 1),
-		level:  level,
-	}
-	g.player.entity.SetCell(0, 0, g.player.cell())
-	g.level.AddEntity(g.player.entity)
+	g.player = newPlayer(config, g.colX(g.playerPos), g.config.boardSize().Y)
+	g.level.AddEntity(g.player)
 
 	g.updateSurvivalDifficulty()
 	g.calcBugSpawnTime()
@@ -402,6 +415,10 @@ func (g *CrunchGame) randMultiColor() Color {
 func (g *CrunchGame) Draw(screen *termloop.Screen) {
 	now := time.Now()
 
+	// BUG: I don't think this should be necessary every time the
+	// underline-state changes... But it is for now.
+	g.player.initEntity()
+
 	twinkle := true
 
 	if g.tutStep == 0 && g.score > 5 {
@@ -458,8 +475,11 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 			g.showingGameOver = !g.showingGameOver
 		}
 	} else {
-		if now.Sub(g.bugSpawnTime) >= 0 {
+		if !now.After(g.bugSpawnContinue) {
+			// Do nothing
+		} else if now.After(g.bugSpawnTime) {
 			g.bugSpawnTime = now
+			g.bugSpawnContinue = now.Add(SpawnMinRest)
 			g.spawnBugs()
 			g.calcBugSpawnTime()
 			for i := range g.vines {
@@ -468,6 +488,15 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 					g.setHint("dying")
 				}
 			}
+		} else if !g.bugSpawnStompTime.IsZero() && now.After(g.bugSpawnStompTime) {
+			if g.bugSpawnStompQueue <= 1 {
+				g.bugSpawnStompQueue = 0
+				g.bugSpawnStompTime = time.Time{}
+			} else {
+				g.bugSpawnStompQueue--
+			}
+			g.bugSpawnContinue = now.Add(SpawnMinRest)
+			g.spawnBugs()
 		}
 		g.textLevel.SetText(fmt.Sprint(g.skillLevel))
 		g.textScore.SetText(fmt.Sprint(g.score))
@@ -855,43 +884,98 @@ func (g *CrunchGame) Tick(event termloop.Event) {
 	}
 
 	if event.Type == termloop.EventKey { // Is it a keyboard event?
+		now := time.Now()
+
+		// Do not accept movement input if the player is immobilized.
+		if !now.After(g.player.immobilized) {
+			goto nomove
+		}
+		g.player.clearStomp(now)
+
 		switch event.Ch { // If so, switch on the pressed key.
 		case 'l':
 			if g.playerPos < g.config.NumCol {
 				g.playerPos++
-				g.player.entity.SetPosition(g.colX(g.playerPos), g.config.boardSize().Y)
+				g.player.setPos(g.colX(g.playerPos), g.config.boardSize().Y)
 			}
 		case 'h':
 			if g.playerPos > 0 {
 				g.playerPos--
-				g.player.entity.SetPosition(g.colX(g.playerPos), g.config.boardSize().Y)
+				g.player.setPos(g.colX(g.playerPos), g.config.boardSize().Y)
 			}
 		case 'k':
 			if g.player.contains != nil {
 				if g.spitBug(g.playerPos) {
 					g.score++
-					g.player.entity.SetCell(0, 0, g.player.cell())
+					g.player.updateCell()
 				}
 			} else {
 				if g.grabBug(g.playerPos) {
 					g.score++
-					g.player.entity.SetCell(0, 0, g.player.cell())
+					g.player.updateCell()
 				}
 			}
 		case 'j':
-			// TODO: puke on the side of the screen when your buddy is around
+			if g.player.beginStomp(now) {
+				g.bugSpawnStompQueue++
+				g.bugSpawnStompTime = now.Add(StompTime + StompSpawn)
+			}
 		}
+
+	nomove: // this label is kind of a hack
 	}
 }
 
 // Player is a player in a CrunchGame
 type Player struct {
-	config   *CrunchConfig
-	entity   *termloop.Entity
+	config         *CrunchConfig
+	entity         *termloop.Entity
+	stomping       bool
+	stompAvailable time.Time
+	immobilized    time.Time
+
 	contains *Bug // any contained bug will have its entity removed
-	prevX    int
-	prevY    int
-	level    *termloop.BaseLevel
+	x        int
+	y        int
+}
+
+func newPlayer(config *CrunchConfig, x, y int) *Player {
+	p := &Player{config: config}
+	p.initEntity()
+	p.setPos(x, y)
+	return p
+}
+
+func (p *Player) setPos(x, y int) {
+	p.x = x
+	p.y = y
+	p.entity.SetPosition(x, y)
+}
+
+func (p *Player) initEntity() {
+	p.entity = termloop.NewEntity(p.x, p.y, 1, 1)
+	p.updateCell()
+}
+
+func (p *Player) updateCell() {
+	p.entity.SetCell(0, 0, p.cell())
+}
+
+func (p *Player) clearStomp(now time.Time) {
+	p.stomping = false
+	p.updateCell()
+}
+
+func (p *Player) beginStomp(now time.Time) bool {
+	if !now.After(p.stompAvailable) {
+		return false
+	}
+	log.Printf("stomping")
+	p.stomping = true
+	p.immobilized = now.Add(StompTime)
+	p.stompAvailable = now.Add(StompTime + StompRest)
+	p.updateCell()
+	return true
 }
 
 // Draw implements termloop.Drawable
@@ -906,7 +990,11 @@ func (p Player) cell() *termloop.Cell {
 	} else {
 		cell.Ch = 'O'
 	}
-	SetCellColor(cell, defaultColorMap, ColorPlayer)
+	if p.stomping {
+		SetCellColorAttr(cell, defaultColorMap, ColorPlayer, termloop.AttrUnderline)
+	} else {
+		SetCellColor(cell, defaultColorMap, ColorPlayer)
+	}
 	return cell
 }
 
@@ -1027,6 +1115,12 @@ type ColorMap interface {
 func SetCellColor(c *termloop.Cell, m ColorMap, fg Color) {
 	c.Bg = termloop.ColorBlack
 	c.Fg = m.Color(fg)
+}
+
+// SetCellColorAttr sets the foreground of c according to a color map
+func SetCellColorAttr(c *termloop.Cell, m ColorMap, fg Color, attr termloop.Attr) {
+	c.Bg = termloop.ColorBlack
+	c.Fg = m.Color(fg) | attr
 }
 
 // SetCellColorBg sets the foreground and background of c according to a color

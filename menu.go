@@ -90,6 +90,9 @@ func (m *CrunchMenu) Draw(screen *termloop.Screen) {
 
 // Tick implements termloop.Drawable
 func (m *CrunchMenu) Tick(event termloop.Event) {
+	if m == nil || m.menu == nil {
+		return
+	}
 	if event.Type == termloop.EventKey { // Is it a keyboard event?
 		switch event.Ch { // If so, switch on the pressed key.
 		case 'k':
