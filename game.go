@@ -21,6 +21,7 @@ type CrunchGame struct {
 	score             int64
 	scoreThreshold    int64
 	skillLevel        uint32
+	bugDistn          BugDistribution
 	playerPos         int
 	player            *Player
 	vines             [][]*Bug
@@ -202,6 +203,7 @@ func (g *CrunchGame) updateDifficulty() bool {
 		diff := g.config.Difficulty
 		g.textLevel.SetText(fmt.Sprint(g.skillLevel))
 		g.bugRate = diff.BugRate(int(g.skillLevel))
+		g.bugDistn = diff.BugDistribution(int(g.skillLevel))
 		spawn, despawn := diff.ItemRate(int(g.skillLevel))
 		g.itemSpawnRate = spawn
 		g.itemDespawnRate = despawn
@@ -247,50 +249,44 @@ func (g *CrunchGame) randomColorBug(n int) Color {
 	return ColorBug + Color(g.rand.Intn(n))
 }
 
+func (g *CrunchGame) randomColorCond(t BugType) Color {
+	possible := bugColors[t]
+	if len(possible) == 1 {
+		return possible[0]
+	}
+	roll := g.rand.Float64()
+	cumm := 0.0
+	for i := range possible {
+		cumm += g.bugDistn.BugColorProb(t, possible[i])
+		if cumm >= roll {
+			return possible[i]
+		}
+	}
+	if math.Abs(roll-cumm) < 1e-3 {
+		log.Printf("level=%d type=%v cumm=%0.5g probability distribution does not add up to one", g.skillLevel, t, cumm)
+	}
+	return ColorNone
+}
+
+func (g *CrunchGame) randomBugType() BugType {
+	roll := g.rand.Float64()
+	cumm := 0.0
+	for typ := 0; typ < bugMax; typ++ {
+		cumm += g.bugDistn.BugTypeProb(BugType(typ))
+		if cumm >= roll {
+			return BugType(typ)
+		}
+	}
+	if math.Abs(roll-cumm) < 1e-3 {
+		log.Printf("level=%d cumm=%0.5g probability distribution does not add up to one", g.skillLevel, cumm)
+	}
+	return bugMax - 1
+}
+
 func (g *CrunchGame) randomBug() *Bug {
-	roll := g.rand.Intn(100) + 1
-
-	roll -= 31
-	if roll <= 0 {
-		return g.createBug(BugSmall, g.randomColorBug(2))
-	}
-
-	roll -= 31
-	if roll <= 0 {
-		return g.createBug(BugLarge, 2+g.randomColorBug(2))
-	}
-
-	roll -= 31
-	if roll <= 0 {
-		return g.createBug(BugGnat, ColorNone)
-	}
-
-	roll -= 2
-	if roll <= 0 {
-		return g.createBug(BugBomb, ColorBomb)
-	}
-
-	roll -= 2
-	if roll <= 0 {
-		return g.createBug(BugLightning, ColorBomb)
-	}
-
-	roll -= 1
-	if roll <= 0 {
-		return g.createBug(BugMultiChain, ColorMulti)
-	}
-
-	roll -= 1
-	if roll <= 0 {
-		return g.createBug(BugRock, ColorNone)
-	}
-
-	roll -= 1
-	if roll <= 0 {
-		return g.createBug(BugMagic, ColorMulti)
-	}
-
-	panic("bug distribution is bad")
+	typ := g.randomBugType()
+	c := g.randomColorCond(typ)
+	return g.createBug(typ, c)
 }
 
 func (g *CrunchGame) createBug(typ BugType, c Color) *Bug {
@@ -957,6 +953,7 @@ func cell(c rune) *termloop.Cell {
 // tested more easily.
 type Rand interface {
 	Intn(n int) int
+	Float64() float64
 	ExpFloat64() float64
 }
 
@@ -996,6 +993,170 @@ func (s *simpleDifficulty) ItemRate(lvl int) (spawn, despawn float64) {
 	return spawn, despawn
 }
 
+func (s *simpleDifficulty) BugDistribution(lvl int) BugDistribution {
+	if lvl < 3 {
+		return &simpleDistribution{
+			&simpleTypeDistribution{
+				BugSmall:      1.0 / 3.0,
+				BugLarge:      1.0 / 3.0,
+				BugGnat:       1.0 / 3.0,
+				BugMagic:      .000,
+				BugBomb:       .000,
+				BugLightning:  .000,
+				BugRock:       .000,
+				BugMultiChain: .000,
+			},
+			&simpleColorDistribution{
+				BugSmall: {ColorBug + 0: 1},
+				BugLarge: {ColorBug + 2: 1},
+			},
+		}
+	}
+	if lvl < 5 {
+		return &simpleDistribution{
+			&simpleTypeDistribution{
+				BugSmall:      .970 / 3.0,
+				BugLarge:      .970 / 3.0,
+				BugGnat:       .970 / 3.0,
+				BugMagic:      .000,
+				BugBomb:       .030,
+				BugLightning:  .000,
+				BugRock:       .000,
+				BugMultiChain: .000,
+			},
+			&simpleColorDistribution{
+				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
+				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
+			},
+		}
+	}
+	if lvl == 6 {
+		return &simpleDistribution{
+			&simpleTypeDistribution{
+				BugSmall:      .950 / 3.0,
+				BugLarge:      .950 / 3.0,
+				BugGnat:       .950 / 3.0,
+				BugMagic:      .000,
+				BugBomb:       .015,
+				BugLightning:  .015,
+				BugRock:       .010,
+				BugMultiChain: .010,
+			},
+			&simpleColorDistribution{
+				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
+				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
+			},
+		}
+	}
+	if lvl == 7 {
+		return &simpleDistribution{
+			&simpleTypeDistribution{
+				BugSmall:      .925 / 3.0,
+				BugLarge:      .925 / 3.0,
+				BugGnat:       .925 / 3.0,
+				BugMagic:      .010,
+				BugBomb:       .015,
+				BugLightning:  .015,
+				BugRock:       .015,
+				BugMultiChain: .010,
+			},
+			&simpleColorDistribution{
+				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
+				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
+			},
+		}
+	}
+	if lvl == 8 {
+		return &simpleDistribution{
+			&simpleTypeDistribution{
+				BugSmall:      .915 / 3.0,
+				BugLarge:      .915 / 3.0,
+				BugGnat:       .915 / 3.0,
+				BugMagic:      .015,
+				BugBomb:       .015,
+				BugLightning:  .015,
+				BugRock:       .015,
+				BugMultiChain: .015,
+			},
+			&simpleColorDistribution{
+				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
+				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
+			},
+		}
+	}
+	if lvl == 9 {
+		return &simpleDistribution{
+			&simpleTypeDistribution{
+				BugSmall:      .900 / 3.0,
+				BugLarge:      .900 / 3.0,
+				BugGnat:       .900 / 3.0,
+				BugMagic:      .02,
+				BugBomb:       .02,
+				BugLightning:  .02,
+				BugRock:       .02,
+				BugMultiChain: .02,
+			},
+			&simpleColorDistribution{
+				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
+				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
+			},
+		}
+	}
+	if lvl == 10 {
+		return &simpleDistribution{
+			&simpleTypeDistribution{
+				BugSmall:      .885 / 3.0,
+				BugLarge:      .885 / 3.0,
+				BugGnat:       .885 / 3.0,
+				BugMagic:      .025,
+				BugBomb:       .025,
+				BugLightning:  .025,
+				BugRock:       .025,
+				BugMultiChain: .025,
+			},
+			&simpleColorDistribution{
+				BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
+				BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
+			},
+		}
+	}
+	return &simpleDistribution{
+		&simpleTypeDistribution{
+			BugSmall:      .87 / 3.0,
+			BugLarge:      .87 / 3.0,
+			BugGnat:       .87 / 3.0,
+			BugMagic:      .03,
+			BugBomb:       .03,
+			BugLightning:  .03,
+			BugRock:       .03,
+			BugMultiChain: .03,
+		},
+		&simpleColorDistribution{
+			BugSmall: {ColorBug + 0: 0.5, ColorBug + 1: 0.5},
+			BugLarge: {ColorBug + 2: 0.5, ColorBug + 3: 0.5},
+		},
+	}
+}
+
+type simpleDistribution struct {
+	*simpleTypeDistribution
+	*simpleColorDistribution
+}
+
+var _ *simpleDistribution = &simpleDistribution{}
+
+type simpleTypeDistribution [bugNumType]float64
+
+func (d *simpleTypeDistribution) BugTypeProb(t BugType) float64 {
+	return (*d)[t]
+}
+
+type simpleColorDistribution [bugNumType][]float64
+
+func (d *simpleColorDistribution) BugColorProb(t BugType, c Color) float64 {
+	return (*d)[t][c]
+}
+
 // Difficulty controls how the game difficulty scales with the player's score.
 type Difficulty interface {
 	// NumBugInit returns the number of bugs to initializer the game with.
@@ -1004,6 +1165,9 @@ type Difficulty interface {
 	// BugRateInit returns a constant amount of time between bug spawns during
 	// initialization.
 	BugRateInit() float64
+
+	// BugDistribution returns the distribution of bugs and colors
+	BugDistribution(lvl int) BugDistribution
 
 	// NextLevel returns the total score required to achive the next level.
 	NextLevel(lvl int) int64
@@ -1020,6 +1184,18 @@ type Difficulty interface {
 	// determins the duration each spawn exists.  Multiple items may exist at
 	// the same time.
 	ItemRate(lvl int) (spawn, despawn float64)
+}
+
+// BugDistribution destribes how bugs spawn on a level.
+type BugDistribution interface {
+	// BugTypeProb returns the probability of spawning a t type bug.
+	BugTypeProb(t BugType) float64
+
+	// BugColorProb returns the probability of spawning a t type bug having
+	// color c.  This can be thought of as the probability of (T, C)
+	// conditioned on T=t.  BugColorProb will only be called with types
+	// BugLarge and BugSmall.
+	BugColorProb(t BugType, c Color) float64
 }
 
 // Color is the a color in a crunch game.
@@ -1067,13 +1243,24 @@ const (
 	BugRock
 	BugMultiChain
 	bugMax = iota - 1
+	bugNumType
 )
 
-var _bugFalls = []bool{
+var bugColors = [bugNumType][]Color{
+	BugSmall:      {ColorBug + 0, ColorBug + 1},
+	BugLarge:      {ColorBug + 2, ColorBug + 3},
+	BugGnat:       {ColorNone},
+	BugMagic:      {ColorMulti},
+	BugBomb:       {ColorBomb},
+	BugLightning:  {ColorBomb},
+	BugRock:       {ColorNone},
+	BugMultiChain: {ColorMulti},
+}
+
+var _bugFalls = [bugNumType]bool{
 	BugBomb:      true,
 	BugRock:      true,
 	BugLightning: true,
-	bugMax:       false,
 }
 
 func bugClimbs(b BugType) bool {
