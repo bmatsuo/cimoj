@@ -44,9 +44,9 @@ func main() {
 	config := &CrunchConfig{
 		Player:           alias,
 		Survival:         &simpleSurvivalDifficulty{},
-		NumCol:           6,
+		NumCol:           8,
 		ColSpace:         2,
-		ColDepth:         10,
+		ColDepth:         7,
 		CritterSizeSmall: 1,
 		CritterSizeLarge: 1,
 	}

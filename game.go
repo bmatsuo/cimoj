@@ -567,8 +567,8 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug, spit bool) bool {
 
 	// Attempt to perform a "food-chain" with the bug above bottom
 	//
-	// BUG: This does not allow a multi-food-chain, or food chains triggered
-	// from gaps.  That may be possible in Critter Crunch.
+	// BUG: This does not food chains triggered from gaps.  That may be
+	// possible in Critter Crunch.
 	if spit && g.bugEats(i, j-1, bottom, false) {
 		log.Printf("pos=[%d, %d] spit triggered a food chain", i, j)
 		g.level.RemoveEntity(bottom.entity)
