@@ -49,7 +49,7 @@ func NewCrunchApp(game *termloop.Game, config *CrunchConfig, scores ScoreDB) *Cr
 		config:  config,
 		scoreDB: scores,
 	}
-	app.menu = NewCrunchMenu()
+	app.menu = NewCrunchMenu(config)
 
 	game.Screen().AddEntity(app)
 

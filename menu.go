@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"strings"
 
 	"github.com/JoelOtter/termloop"
@@ -22,31 +21,34 @@ var menuChoices = []string{
 
 // CrunchMenu provides the main menu for a CrunchApp.
 type CrunchMenu struct {
-	menu  *simpleMenu
-	level *termloop.BaseLevel
+	config        *CrunchConfig
+	menu          *simpleMenu
+	textPlayer    *termloop.Text
+	textGameType  *termloop.Text
+	textHighScore *termloop.Text
+	level         *termloop.BaseLevel
 }
 
 // NewCrunchMenu creates a new menu to drive the CrunchApp.  It's recommended
 // that the menu never be destroyed, but simple removed from any Entities lists
 // to avoid it being drawn.
-func NewCrunchMenu() *CrunchMenu {
-	m := &CrunchMenu{}
+func NewCrunchMenu(config *CrunchConfig) *CrunchMenu {
+	m := &CrunchMenu{
+		config: config,
+	}
 	fg := termloop.ColorWhite
 	bg := termloop.ColorBlack
 
 	m.level = termloop.NewBaseLevel(termloop.Cell{
 		Fg: fg,
 		Bg: bg,
+		Ch: ' ',
 	})
-
-	m.menu = newSimpleMenu(40, 9, fg, bg, menuChoices)
-	m.level.AddEntity(m.menu)
 
 	titleLines := strings.Split(titleText, "\n")
 	title := termloop.NewEntity(2, 1, 50, 8)
 	m.level.AddEntity(title)
 	for i := range titleLines {
-		log.Print(titleLines[i])
 		for j := range titleLines[i] {
 			title.SetCell(j, i, &termloop.Cell{
 				Fg: fg,
@@ -55,6 +57,21 @@ func NewCrunchMenu() *CrunchMenu {
 			})
 		}
 	}
+
+	m.menu = newSimpleMenu(4, 10, fg, bg, menuChoices)
+	m.level.AddEntity(m.menu)
+
+	stats := termloop.NewBaseLevel(termloop.Cell{})
+	m.level.AddEntity(stats)
+	stats.SetOffset(40, 10)
+
+	stats.AddEntity(termloop.NewText(0, 0, "Kaŝita:", fg, bg))
+	m.textPlayer = termloop.NewText(14, 0, m.config.Player, fg, bg)
+	stats.AddEntity(m.textPlayer)
+
+	stats.AddEntity(termloop.NewText(0, 2, "Ludo Reĝimo:", fg, bg))
+	m.textGameType = termloop.NewText(14, 2, "Supervivo", fg, bg)
+	stats.AddEntity(m.textGameType)
 
 	m.menu.SetSelection(0, true)
 

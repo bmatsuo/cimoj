@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"os/user"
 
 	"github.com/JoelOtter/termloop"
 )
@@ -22,7 +23,18 @@ func main() {
 	}
 	log.SetOutput(logf)
 
+	alias := "player"
+	usr, err := user.Current()
+	if err != nil {
+		log.Printf("unable to detect username: %v", err)
+	} else if usr.Username != "" {
+		log.Printf("detected user has no username")
+	} else {
+		alias = usr.Username
+	}
+
 	config := &CrunchConfig{
+		Player:           alias,
 		Difficulty:       &simpleDifficulty{},
 		NumCol:           6,
 		ColSpace:         2,
