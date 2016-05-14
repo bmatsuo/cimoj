@@ -8,17 +8,17 @@ reciproke.
 
 #TODO
 
-- [ ] Tablo de la plej altaj amasigitaj punktoj
+- [ ] Tablo de la plej altaj amasigitaj punktoj (half-done)
 
 - [ ] Eroj -- Mono, Venono, Uzebla
 
-- [ ] X-cimo -- Explodas en x-padrono
+- [x] X-cimo -- Explodas en x-padrono
 
-- [ ] Multĉena cimo -- Ĉenas kun grandaj kaj malgrandaj cimoj de ĉiuj koloroj
+- [x] Multĉena cimo -- Ĉenas kun grandaj kaj malgrandaj cimoj de ĉiuj koloroj
 
-- [ ] Ripari la magia cimo -- Oni aktivigas ĝin ĉenante, ne nutrante.
+- [x] Ripari la magia cimo -- Oni aktivigas ĝin ĉenante, ne nutrante.
 
-- [ ] Frajado distribuoj  -- La unuaj etaĝoj enhavas limitigan grupon de cimoj.
+- [x] Frajado distribuoj  -- La unuaj etaĝoj enhavas limitigan grupon de cimoj.
 
 - [ ] Enigmo reĝimo -- Cimoj ne frajas.  Oni eksterma ĉiujn la cimojn uzante la
   plej multaj agoj.
