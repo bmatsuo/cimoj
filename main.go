@@ -27,7 +27,7 @@ func main() {
 	usr, err := user.Current()
 	if err != nil {
 		log.Printf("unable to detect username: %v", err)
-	} else if usr.Username != "" {
+	} else if usr.Username == "" {
 		log.Printf("detected user has no username")
 	} else {
 		alias = usr.Username
