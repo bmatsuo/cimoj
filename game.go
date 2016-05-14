@@ -681,11 +681,21 @@ func (g *CrunchGame) clearExploded() bool {
 				decreasePtY(&g.pendingChains, j)
 				g.level.RemoveEntity(g.vines[i][j].entity)
 			} else if gapstart >= 0 {
-				if gapstart > 0 && !g.bugEats(i, gapstart-1, g.vines[i][j]) {
-					newvine = append(newvine, g.vines[i][j])
-				} else {
+				if j == len(g.vines[i])-1 && !bugClimbs(g.vines[i][j].Type) {
+					log.Printf("pos=[%d, %d] dropped from the vines", i, j)
+					// BUG: Bombs should explode on the ground and kill the
+					// player when they drop in this way.
 					g.level.RemoveEntity(g.vines[i][j].entity)
 					consumed = true
+				} else if gapstart >= 0 {
+					if g.bugEats(i, gapstart-1, g.vines[i][j]) {
+						g.level.RemoveEntity(g.vines[i][j].entity)
+						consumed = true
+					} else {
+						newvine = append(newvine, g.vines[i][j])
+					}
+				} else {
+					newvine = append(newvine, g.vines[i][j])
 				}
 				gapstart = -1
 			} else {
@@ -1049,7 +1059,19 @@ const (
 	BugLightning
 	BugRock
 	BugMultiChain
+	bugMax = iota - 1
 )
+
+var _bugFalls = []bool{
+	BugBomb:      true,
+	BugRock:      true,
+	BugLightning: true,
+	bugMax:       false,
+}
+
+func bugClimbs(b BugType) bool {
+	return !_bugFalls[b]
+}
 
 // Bug is a bug that crawls down the vines.  Bugs have distinct color.  Large
 // bugs can only eat smaller bugs of the same color.
