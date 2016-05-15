@@ -100,7 +100,7 @@ func (s *simpleSurvivalDifficulty) BugDistribution(lvl int) BugDistribution {
 			},
 			&bugColorCondDistn{
 				BugSmall: {ColorBug + 0: 1, ColorBug + 1: 1},
-				BugLarge: {ColorBug + 2: 1, ColorBug + 3: 1},
+				BugLarge: {ColorBug + 2: 1, ColorBug + 3: 0},
 			},
 		}
 	}
