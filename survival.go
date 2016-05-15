@@ -2,6 +2,9 @@ package main
 
 import "math"
 
+const defaultSurvivalLevelOne = 30
+const defaultSurvivalLevelBase = 1.5
+
 // SurvivalDifficulty controls how the game difficulty scales with the player's score.
 type SurvivalDifficulty interface {
 	// NumBugInit returns the number of bugs to initializer the game with.
@@ -34,13 +37,7 @@ type SurvivalDifficulty interface {
 type simpleSurvivalDifficulty struct{}
 
 func (s *simpleSurvivalDifficulty) NextLevel(lvl int) int64 {
-	if lvl <= 0 {
-		return 0
-	}
-	if lvl < 63 {
-		return 1 << uint(lvl)
-	}
-	return -1
+	return int64(float64(defaultSurvivalLevelOne) * math.Pow(defaultSurvivalLevelBase, float64(lvl)))
 }
 
 func (s *simpleSurvivalDifficulty) NumBugInit() int {
