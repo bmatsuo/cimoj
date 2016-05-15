@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/JoelOtter/termloop"
+	"github.com/nsf/termbox-go"
 )
 
 // Game constants
@@ -876,54 +877,87 @@ func (g *CrunchGame) spitBug(i int) bool {
 	return true
 }
 
+func (g *CrunchGame) controlMoveRight(event termloop.Event, now time.Time) {
+	if g.playerPos > 0 {
+		g.playerPos--
+		g.player.setPos(g.colX(g.playerPos), g.config.boardSize().Y)
+	}
+}
+
+func (g *CrunchGame) controlMoveLeft(event termloop.Event, now time.Time) {
+	if g.playerPos < g.config.NumCol {
+		g.playerPos++
+		g.player.setPos(g.colX(g.playerPos), g.config.boardSize().Y)
+	}
+}
+
+func (g *CrunchGame) controlMouth(event termloop.Event, now time.Time) {
+	if g.player.contains != nil {
+		if g.spitBug(g.playerPos) {
+			g.score++
+			g.player.updateCell()
+		}
+	} else {
+		if g.grabBug(g.playerPos) {
+			g.score++
+			g.player.updateCell()
+		}
+	}
+}
+
+func (g *CrunchGame) controlStomp(event termloop.Event, now time.Time) {
+	if g.player.beginStomp(now) {
+		g.bugSpawnStompQueue++
+		g.bugSpawnStompTime = now.Add(StompTime + StompSpawn)
+	}
+}
+
 // Tick implements termloop.Drawable
 func (g *CrunchGame) Tick(event termloop.Event) {
 	if g.gameOver() {
-		log.Printf("GAME OVER")
 		return
 	}
 
-	if event.Type == termloop.EventKey { // Is it a keyboard event?
-		now := time.Now()
+	now := time.Now()
+	// Do not accept movement input if the player is immobilized.
+	if !now.After(g.player.immobilized) {
+		goto nomove
+	}
+	g.player.clearStomp(now)
 
-		// Do not accept movement input if the player is immobilized.
-		if !now.After(g.player.immobilized) {
-			goto nomove
+	if event.Type == termloop.EventMouse {
+		// NOTE:
+		// At the time of writing MouseWheelUp and MouseWheelDown keys do not
+		// exist in termloop.
+		// 		https://github.com/JoelOtter/termloop/issues/25
+		switch event.Key {
+		case termloop.Key(termbox.MouseWheelUp):
+			g.controlMoveLeft(event, now)
+		case termloop.Key(termbox.MouseWheelDown):
+			g.controlMoveRight(event, now)
+		case termloop.MouseLeft:
+			g.controlMouth(event, now)
+		case termloop.MouseRight:
+			// TODO: Puke into your kid's mouth
+		case termloop.MouseMiddle:
+			g.controlStomp(event, now)
 		}
-		g.player.clearStomp(now)
+	} else if event.Type == termloop.EventKey { // Is it a keyboard event?
 
 		switch event.Ch { // If so, switch on the pressed key.
 		case 'l':
-			if g.playerPos < g.config.NumCol {
-				g.playerPos++
-				g.player.setPos(g.colX(g.playerPos), g.config.boardSize().Y)
-			}
+			g.controlMoveLeft(event, now)
 		case 'h':
-			if g.playerPos > 0 {
-				g.playerPos--
-				g.player.setPos(g.colX(g.playerPos), g.config.boardSize().Y)
-			}
+			g.controlMoveRight(event, now)
 		case 'k':
-			if g.player.contains != nil {
-				if g.spitBug(g.playerPos) {
-					g.score++
-					g.player.updateCell()
-				}
-			} else {
-				if g.grabBug(g.playerPos) {
-					g.score++
-					g.player.updateCell()
-				}
-			}
+			g.controlMouth(event, now)
 		case 'j':
-			if g.player.beginStomp(now) {
-				g.bugSpawnStompQueue++
-				g.bugSpawnStompTime = now.Add(StompTime + StompSpawn)
-			}
+			g.controlStomp(event, now)
+		case 'i':
+			// TODO: Puke into your kid's mouth
 		}
-
-	nomove: // this label is kind of a hack
 	}
+nomove: // this label is kind of a hack
 }
 
 // Player is a player in a CrunchGame
