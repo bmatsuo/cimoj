@@ -878,21 +878,60 @@ func (g *CrunchGame) spitBug(i int) bool {
 	return true
 }
 
-func (g *CrunchGame) controlMoveRight(event termloop.Event, now time.Time) {
+// Tick implements termloop.Drawable
+func (g *CrunchGame) Tick(event termloop.Event) {
+	if g.gameOver() {
+		return
+	}
+
+	var pctl PlayerControl
+	var ok bool
+	now := time.Now()
+	// Do not accept movement input if the player is immobilized.
+	if !now.After(g.player.immobilized) {
+		goto nomove
+	}
+	g.player.clearStomp(now)
+	pctl, ok = g.normalizeControlEvent(event)
+	if !ok {
+		goto nomove
+	}
+	switch pctl {
+	case PlayerMoveLeft:
+		g.controlMoveLeft(event, now)
+	case PlayerMoveRight:
+		g.controlMoveRight(event, now)
+	case PlayerGrabSpit:
+		g.controlGrabSpit(event, now)
+	case PlayerStomp:
+		g.controlStomp(event, now)
+	case PlayerPuke:
+		// TODO
+	case PlayerItemUse:
+		// TODO
+	case PlayerItemForward:
+		// TODO
+	case PlayerItemBackward:
+		// TODO
+	}
+nomove: // this label is kind of a hack
+}
+
+func (g *CrunchGame) controlMoveLeft(event termloop.Event, now time.Time) {
 	if g.playerPos > 0 {
 		g.playerPos--
 		g.player.setPos(g.colX(g.playerPos), g.config.boardSize().Y)
 	}
 }
 
-func (g *CrunchGame) controlMoveLeft(event termloop.Event, now time.Time) {
+func (g *CrunchGame) controlMoveRight(event termloop.Event, now time.Time) {
 	if g.playerPos < g.config.NumCol {
 		g.playerPos++
 		g.player.setPos(g.colX(g.playerPos), g.config.boardSize().Y)
 	}
 }
 
-func (g *CrunchGame) controlMouth(event termloop.Event, now time.Time) {
+func (g *CrunchGame) controlGrabSpit(event termloop.Event, now time.Time) {
 	if g.player.contains != nil {
 		if g.spitBug(g.playerPos) {
 			g.score++
@@ -913,53 +952,79 @@ func (g *CrunchGame) controlStomp(event termloop.Event, now time.Time) {
 	}
 }
 
-// Tick implements termloop.Drawable
-func (g *CrunchGame) Tick(event termloop.Event) {
-	if g.gameOver() {
-		return
-	}
-
-	now := time.Now()
-	// Do not accept movement input if the player is immobilized.
-	if !now.After(g.player.immobilized) {
-		goto nomove
-	}
-	g.player.clearStomp(now)
-
+func (g *CrunchGame) normalizeControlEvent(event termloop.Event) (ctrl PlayerControl, ok bool) {
+	// Dispatch to the mouse and keyboard event handlers.
 	if event.Type == termloop.EventMouse {
-		// NOTE:
-		// At the time of writing MouseWheelUp and MouseWheelDown keys do not
-		// exist in termloop.
-		// 		https://github.com/JoelOtter/termloop/issues/25
-		switch event.Key {
-		case termloop.Key(termbox.MouseWheelUp):
-			g.controlMoveLeft(event, now)
-		case termloop.Key(termbox.MouseWheelDown):
-			g.controlMoveRight(event, now)
-		case termloop.MouseLeft:
-			g.controlMouth(event, now)
-		case termloop.MouseRight:
-			// TODO: Puke into your kid's mouth
-		case termloop.MouseMiddle:
-			g.controlStomp(event, now)
-		}
-	} else if event.Type == termloop.EventKey { // Is it a keyboard event?
-
-		switch event.Ch { // If so, switch on the pressed key.
-		case 'l':
-			g.controlMoveLeft(event, now)
-		case 'h':
-			g.controlMoveRight(event, now)
-		case 'k':
-			g.controlMouth(event, now)
-		case 'j':
-			g.controlStomp(event, now)
-		case 'i':
-			// TODO: Puke into your kid's mouth
-		}
+		return g.normalizeMouseEvent(event)
 	}
-nomove: // this label is kind of a hack
+	if event.Type == termloop.EventKey {
+		return g.normalizeKeyPress(event)
+	}
+	return 0, false
 }
+
+func (g *CrunchGame) normalizeKeyPress(event termloop.Event) (ctrl PlayerControl, ok bool) {
+	switch event.Ch { // If so, switch on the pressed key.
+	case 'h':
+		return PlayerMoveLeft, true
+	case 'j':
+		return PlayerStomp, true
+	case 'k':
+		return PlayerGrabSpit, true
+	case 'l':
+		return PlayerMoveRight, true
+	case 'u':
+		return PlayerItemBackward, true
+	case 'i':
+		return PlayerPuke, true
+	case 'o':
+		return PlayerItemUse, true
+	case 'p':
+		return PlayerItemForward, true
+	}
+	return 0, false
+}
+
+func (g *CrunchGame) normalizeMouseEvent(event termloop.Event) (ctrl PlayerControl, ok bool) {
+	// TODO: There are not enough portable mouse button map the entire game to
+	// the mouse alone.  The shift key should map into alternate, less
+	// important mappings.
+
+	// NOTE:
+	// At the time of writing MouseWheelUp and MouseWheelDown keys do not
+	// exist in termloop.
+	// 		https://github.com/JoelOtter/termloop/issues/25
+	switch event.Key {
+	case termloop.Key(termbox.MouseWheelUp):
+		return PlayerMoveLeft, true
+	case termloop.Key(termbox.MouseWheelDown):
+		return PlayerMoveRight, true
+	case termloop.MouseLeft:
+		return PlayerGrabSpit, true
+	case termloop.MouseRight:
+		return PlayerPuke, true
+	case termloop.MouseMiddle:
+		return PlayerStomp, true
+	}
+	return 0, false
+}
+
+// PlayerControl is an abstract representation of a key or mouse button press.
+// This allows controls to be remapped to different keys with user
+// configuration.
+type PlayerControl uint8
+
+// PlayerControl constants
+const (
+	PlayerMoveLeft PlayerControl = iota
+	PlayerMoveRight
+	PlayerGrabSpit
+	PlayerStomp
+	PlayerPuke
+	PlayerItemUse
+	PlayerItemForward
+	PlayerItemBackward
+)
 
 // Ground holds items that the player can pick up.
 type Ground struct {
