@@ -1,7 +1,7 @@
 #Cimoj
 
 Cimoj is a puzzle game clone of Critter Crunch.  The mechanics of Cimoj are
-like Critter Crunch but the game is played in your favorite terminal editor.
+like Critter Crunch but the game is played in your favorite terminal emulator.
 
 The goal of Cimoj is to match the mechanics of Critter Crunch and provide and
 open and extendable level design system.  Players will be able to create,
