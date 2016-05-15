@@ -1,5 +1,7 @@
 #Cimoj
 
+[[English](docs/en/README.md)]
+
 Cimoj estas enigmo ludo, ke klonas Critter Crunch.  La ludado en Cimoj estas
 simila al tio en Critter Crunch.  Sed, oni ludas Cimoj sur sian ŝatatan
 terminalimitilon.  Dum ludo de Cimoj, multaj cimoj rampos malsupren vitojn.
