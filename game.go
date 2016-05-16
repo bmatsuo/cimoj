@@ -31,6 +31,9 @@ const (
 type CrunchGame struct {
 	config             *CrunchConfig
 	tutStep            int
+	scoreMultiplier    float64
+	chainSize          int
+	chainEnd           image.Point
 	score              int64
 	scoreThreshold     int64
 	skillLevel         uint32
@@ -81,6 +84,7 @@ func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLev
 		config:           config,
 		rand:             defaultRand(),
 		multis:           make(map[*Bug]struct{}),
+		scoreMultiplier:  1,
 		level:            level,
 		bugSpawnTime:     now,
 		bugSpawnContinue: now,
@@ -185,14 +189,13 @@ func (g *CrunchGame) calcHighScore() *HighScore {
 }
 
 func (g *CrunchGame) calcItemSpawnTime() {
-	g.itemSpawnTime = g.itemSpawnTime.Add(time.Duration(float64(time.Second) * g.rand.ExpFloat64() * g.itemSpawnRate))
+	g.itemSpawnTime = g.itemSpawnTime.Add(time.Duration(float64(time.Second)*g.itemSpawnRate + 0.333*g.rand.NormFloat64()))
 }
 
 func (g *CrunchGame) calcBugSpawnTime() {
 	// board initialization has completed -- enter the normal code path.
 	if g.bugSpawnInitRem == 0 {
 		g.bugSpawnTime = g.bugSpawnTime.Add(time.Duration(float64(time.Second)*g.bugRate + 0.3333*g.rand.NormFloat64()))
-		//g.bugSpawnTime = g.bugSpawnTime.Add(time.Duration(float64(time.Second) * g.rand.ExpFloat64() * g.bugRate))
 		return
 	}
 
@@ -628,12 +631,24 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug, spit bool) bool {
 	return true
 }
 
-// BUG: Bombs do not trigger chain reactions with other bombs.
+// BUG: triggerExplosions is kind of weird. combo tracking is probably broken
+// due to how everything happens instantly.
 func (g *CrunchGame) triggerExplosions() {
+	// Bombs take precedence over other reactions which propogate more
+	// slowly, IIRC.
 	for _, pt := range g.pendingExplos {
 		g.bombChain(pt.X, pt.Y)
 	}
 	g.pendingExplos = g.pendingExplos[:0]
+
+	// TODO:
+	// Bombs drop some kind of bomb money.  I'm not sure about the
+	// rules behind that.
+
+	if g.chainSize > 0 {
+		g.dropItem(g.chainEnd.X, g.moneySize())
+		g.chainSize = 0
+	}
 
 domagics:
 	for _, pt := range g.pendingMagics {
@@ -644,6 +659,8 @@ domagics:
 		g.vines[i][j].Exploded = true
 		log.Printf("pos=[%d, %d] magic exploded color=%v", i, j, g.vines[i][j].EColor)
 		mcolor := g.vines[i][j].EColor
+		g.chainSize++
+		g.chainEnd = image.Pt(i, j)
 		g.score++
 
 		for i := range g.vines {
@@ -662,15 +679,61 @@ domagics:
 	}
 	g.pendingMagics = g.pendingMagics[:0]
 
+	// Magic cannot trigger bombs because bombs just destroy magic.  So we just
+	// move on to pending chains.
+
 	for _, pt := range g.pendingChains {
 		i, j := pt.X, pt.Y
-		g.explosionChain(i, j, g.vines[i][j].Color)
+		g.colorChain(i, j, g.vines[i][j].Color)
 	}
 	g.pendingChains = g.pendingChains[:0]
 
+	// Bombs may be triggered by chains (multichain I think?). But, in
+	// order to take precedence over other chaining bombs should
+	// explode while the chain is resolving...  But there is currently
+	// a problem with the order of chain resolution not respecting
+	// physics.  Dammit.
 	if len(g.pendingMagics) > 0 {
 		goto domagics
 	}
+
+	if g.chainSize > 0 {
+		g.dropItem(g.chainEnd.X, g.moneySize())
+		g.chainSize = 0
+	}
+}
+
+func (g *CrunchGame) dropItem(i int, typ ItemType) {
+	// TODO
+}
+
+// moneySize is called when a piece of money is generated and is based
+// on the size of the chain that caused it.
+func (g *CrunchGame) moneySize() ItemType {
+	if g.chainSize < 3 {
+		return ItemMoneyXXS
+	}
+	if g.chainSize < 5 {
+		return ItemMoneyXS
+	}
+	if g.chainSize < 8 {
+		return ItemMoneySM
+	}
+	if g.chainSize < 12 {
+		return ItemMoneyMD
+	}
+	if g.chainSize < 17 {
+		return ItemMoneyLG
+	}
+	if g.chainSize < 21 {
+		return ItemMoneyXL
+	}
+	return ItemMoneyXXL
+}
+
+// moneyPoints is called when the player picks up a piece of money.
+func (g *CrunchGame) moneyPoints(ItemType) int {
+	return 0
 }
 
 func decreasePtY(pts *[]image.Point, min int) {
@@ -772,7 +835,7 @@ func (g *CrunchGame) bombChain(i, j int) {
 	if g.vines[i][j].Type == BugBomb {
 		log.Printf("pos=[%d, %d] bomb exploded", i, j)
 		// Explode nearby bugs; out of bounds accesses are handled in the call.
-		// The following nested loop will call g.explosionChain(i, j) again but
+		// The following nested loop will call g.colorChain(i, j) again but
 		// we should have already exploded index (i,j) and no infinite
 		// recursion will occur.
 		for ik := i - 1; ik <= i+1; ik++ {
@@ -793,7 +856,7 @@ func (g *CrunchGame) bombChain(i, j int) {
 	}
 }
 
-func (g *CrunchGame) explosionChain(i, j int, c Color) {
+func (g *CrunchGame) colorChain(i, j int, c Color) {
 	if i < 0 {
 		return
 	}
@@ -834,20 +897,22 @@ func (g *CrunchGame) explosionChain(i, j int, c Color) {
 		Fg: defaultColorMap.Color(ColorExploded),
 		Ch: g.vines[i][j].Rune,
 	})
+	g.chainSize++
+	g.chainEnd = image.Pt(i, j)
 	g.score++
 
 	if i > 0 {
-		g.explosionChain(i-1, j, c)
+		g.colorChain(i-1, j, c)
 	}
 	if i < len(g.vines)-1 {
-		g.explosionChain(i+1, j, c)
+		g.colorChain(i+1, j, c)
 	}
 
 	if j > 0 {
-		g.explosionChain(i, j-1, c)
+		g.colorChain(i, j-1, c)
 	}
 	if j < len(g.vines[i])-1 {
-		g.explosionChain(i, j+1, c)
+		g.colorChain(i, j+1, c)
 	}
 }
 
@@ -1290,11 +1355,13 @@ type ItemType uint
 
 // ItemType constants
 const (
-	ItemMoneyXS ItemType = iota
+	ItemMoneyXXS ItemType = iota
+	ItemMoneyXS
 	ItemMoneySM
 	ItemMoneyMD
 	ItemMoneyLG
 	ItemMoneyXL
+	ItemMoneyXXL
 	ItemPoison
 	ItemRowClear
 	ItemPushUp
@@ -1332,25 +1399,29 @@ func (items *itemsByPrecedence) Swap(i, j int) {
 }
 
 var itemsRunePrecedence = []int{
-	ItemMoneyXS:  1,
-	ItemMoneySM:  2,
-	ItemMoneyMD:  3,
-	ItemMoneyLG:  4,
-	ItemMoneyXL:  5,
+	ItemMoneyXXS: 1,
+	ItemMoneyXS:  2,
+	ItemMoneySM:  3,
+	ItemMoneyMD:  4,
+	ItemMoneyLG:  5,
+	ItemMoneyXL:  6,
+	ItemMoneyXXL: 7,
 	ItemPoison:   0,
-	ItemRowClear: 6,
-	ItemPushUp:   7,
-	ItemBullet:   8,
-	ItemScramble: 9,
-	ItemRecolor:  10,
+	ItemRowClear: 8,
+	ItemPushUp:   9,
+	ItemBullet:   10,
+	ItemScramble: 11,
+	ItemRecolor:  12,
 }
 
 var itemsFgPrecedence = []int{
-	ItemMoneyXS:  6,
-	ItemMoneySM:  7,
-	ItemMoneyMD:  8,
-	ItemMoneyLG:  9,
-	ItemMoneyXL:  10,
+	ItemMoneyXXS: 6,
+	ItemMoneyXS:  7,
+	ItemMoneySM:  8,
+	ItemMoneyMD:  9,
+	ItemMoneyLG:  10,
+	ItemMoneyXL:  11,
+	ItemMoneyXXL: 12,
 	ItemPoison:   0,
 	ItemRowClear: 1,
 	ItemPushUp:   2,
@@ -1360,11 +1431,13 @@ var itemsFgPrecedence = []int{
 }
 
 var itemsBgPrecedence = []int{
-	ItemMoneyXS:  6,
-	ItemMoneySM:  7,
-	ItemMoneyMD:  8,
-	ItemMoneyLG:  9,
-	ItemMoneyXL:  10,
+	ItemMoneyXXS: 6,
+	ItemMoneyXS:  7,
+	ItemMoneySM:  8,
+	ItemMoneyMD:  9,
+	ItemMoneyLG:  10,
+	ItemMoneyXL:  11,
+	ItemMoneyXXL: 12,
 	ItemPoison:   0,
 	ItemRowClear: 1,
 	ItemPushUp:   2,
@@ -1374,11 +1447,13 @@ var itemsBgPrecedence = []int{
 }
 
 var itemsRunes = []rune{
+	ItemMoneyXXS: '₩',
 	ItemMoneyXS:  '¢',
 	ItemMoneySM:  '$',
 	ItemMoneyMD:  '€',
 	ItemMoneyLG:  '£',
 	ItemMoneyXL:  '◇',
+	ItemMoneyXXL: 'ẘ',
 	ItemPoison:   '░',
 	ItemRowClear: '-',
 	ItemPushUp:   '^',
