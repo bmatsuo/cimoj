@@ -11,6 +11,7 @@ type Rand interface {
 	Intn(n int) int
 	Float64() float64
 	ExpFloat64() float64
+	NormFloat64() float64
 }
 
 // BugDistribution destribes how bugs spawn on a level.

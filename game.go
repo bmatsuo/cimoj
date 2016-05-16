@@ -192,7 +192,8 @@ func (g *CrunchGame) calcItemSpawnTime() {
 func (g *CrunchGame) calcBugSpawnTime() {
 	// board initialization has completed -- enter the normal code path.
 	if g.bugSpawnInitRem == 0 {
-		g.bugSpawnTime = g.bugSpawnTime.Add(time.Duration(float64(time.Second) * g.rand.ExpFloat64() * g.bugRate))
+		g.bugSpawnTime = g.bugSpawnTime.Add(time.Duration(float64(time.Second)*g.bugRate + 0.3333*g.rand.NormFloat64()))
+		//g.bugSpawnTime = g.bugSpawnTime.Add(time.Duration(float64(time.Second) * g.rand.ExpFloat64() * g.bugRate))
 		return
 	}
 

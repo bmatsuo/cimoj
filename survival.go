@@ -52,8 +52,8 @@ func (s *simpleSurvivalDifficulty) BugRateInit() float64 {
 }
 
 func (s *simpleSurvivalDifficulty) BugRate(lvl int) float64 {
-	const initialRate = 5 // about every 5 seconds
-	const baseReduction = 0.95
+	const initialRate = 7 // about every 5 seconds
+	const baseReduction = 0.99
 	return initialRate * math.Pow(baseReduction, float64(lvl))
 }
 
