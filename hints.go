@@ -7,11 +7,17 @@ var hints = map[string][4]string{
 		"Prenu kaj kraĉu cimojn premante k.",
 		"",
 	},
-	"scoring": {
+	"feeding": {
 		"Cimoj manĝas pli malgranda cimojn.",
 		"",
 		"Se ili manĝus tro multe, ke si iel",
 		"eksplodus al provoki ĉeno reago.",
+	},
+	"scoring": {
+		"Kion vi kolektis?",
+		"",
+		"Ĝi aspektas multekosta.",
+		"",
 	},
 	"dying": {
 		"Via propra morto estas tuja!",

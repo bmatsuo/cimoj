@@ -40,6 +40,7 @@ type CrunchGame struct {
 	bugDistn           BugDistribution
 	playerPos          int
 	player             *Player
+	ground             *Ground
 	vines              [][]*Bug
 	pendingExplos      []image.Point
 	pendingChains      []image.Point
@@ -131,6 +132,14 @@ func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLev
 	// Set the initial hint for the game.  The basic controls hint helps new
 	// players and only shows during the beginning of the game.
 	g.setHint("controls")
+
+	g.ground = newGround(
+		config,
+		3, g.config.boardSize().Y,
+		g.config.ColSpace+g.config.CritterSizeLarge/2,
+		2*(g.config.CritterSizeLarge/2)+g.config.ColSpace, // divide than multiply to clear LSB
+	)
+	g.level.AddEntity(g.ground)
 
 	g.playerPos = config.NumCol
 	g.player = newPlayer(config, g.colX(g.playerPos), g.config.boardSize().Y)
@@ -426,8 +435,8 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 
 	twinkle := true
 
-	if g.tutStep == 0 && g.score > 5 {
-		g.tutStep++
+	if g.tutStep < 2 && g.score > 0 {
+		g.tutStep = 2
 		g.setHint("scoring")
 	}
 	if g.gameOver() {
@@ -646,7 +655,7 @@ func (g *CrunchGame) triggerExplosions() {
 	// rules behind that.
 
 	if g.chainSize > 0 {
-		g.dropItem(g.chainEnd.X, g.moneySize())
+		g.dropItem(time.Now(), g.chainEnd, g.moneySize())
 		g.chainSize = 0
 	}
 
@@ -698,13 +707,62 @@ domagics:
 	}
 
 	if g.chainSize > 0 {
-		g.dropItem(g.chainEnd.X, g.moneySize())
+		g.dropItem(time.Now(), g.chainEnd, g.moneySize())
 		g.chainSize = 0
 	}
 }
 
-func (g *CrunchGame) dropItem(i int, typ ItemType) {
-	// TODO
+func (g *CrunchGame) dropItem(now time.Time, pt image.Point, typ ItemType) {
+	log.Printf("pos=[%d, %d] item=%v a bug dropped an item", pt.X, pt.Y, typ)
+
+	if g.playerPos == pt.X {
+		g.acquireItem(typ)
+		return
+	}
+
+	// TODO: calculate despawn time correctly
+	g.ground.insertItem(now, pt.X, &Item{
+		Type:    typ,
+		Despawn: now.Add(10 * time.Second),
+	})
+}
+
+func (g *CrunchGame) pickUpItems(now time.Time, i int) {
+	items := g.ground.takeItems(now, i)
+	for i := range items {
+		g.acquireItem(items[i].Type)
+	}
+}
+
+func (g *CrunchGame) acquireItem(typ ItemType) {
+	pointsRaw := g.pointValue(typ)
+	log.Printf("points=%d item picked up", pointsRaw)
+	if pointsRaw > 0 {
+		points := int64(float64(pointsRaw) * g.scoreMultiplier)
+		log.Printf("points=%d adjusted point value", pointsRaw)
+		g.score += points
+	}
+
+}
+
+func (g *CrunchGame) pointValue(typ ItemType) int {
+	switch typ {
+	case ItemMoneyXXS:
+		return 10
+	case ItemMoneyXS:
+		return 20
+	case ItemMoneySM:
+		return 40
+	case ItemMoneyMD:
+		return 80
+	case ItemMoneyLG:
+		return 160
+	case ItemMoneyXL:
+		return 320
+	case ItemMoneyXXL:
+		return 640
+	}
+	return 0
 }
 
 // moneySize is called when a piece of money is generated and is based
@@ -829,7 +887,9 @@ func (g *CrunchGame) bombChain(i, j int) {
 		Fg: defaultColorMap.Color(ColorExploded),
 		Ch: g.vines[i][j].Rune,
 	})
-	g.score++
+	//g.score++
+	g.chainSize++
+	g.chainEnd = image.Pt(i, j)
 
 	log.Printf("pos=[%d, %d] exploded by bomb", i, j)
 	if g.vines[i][j].Type == BugBomb {
@@ -899,7 +959,7 @@ func (g *CrunchGame) colorChain(i, j int, c Color) {
 	})
 	g.chainSize++
 	g.chainEnd = image.Pt(i, j)
-	g.score++
+	//g.score++
 
 	if i > 0 {
 		g.colorChain(i-1, j, c)
@@ -925,6 +985,10 @@ func (g *CrunchGame) spitBug(i int) bool {
 	g.player.contains = nil
 
 	if g.bugEats(i, -1, spat, true) {
+		if g.tutStep < 1 {
+			g.tutStep++
+			g.setHint("feeding")
+		}
 		return true
 	}
 
@@ -985,6 +1049,7 @@ nomove: // this label is kind of a hack
 func (g *CrunchGame) controlMoveLeft(event termloop.Event, now time.Time) {
 	if g.playerPos > 0 {
 		g.playerPos--
+		g.pickUpItems(now, g.playerPos)
 		g.player.setPos(g.colX(g.playerPos), g.config.boardSize().Y)
 	}
 }
@@ -992,6 +1057,7 @@ func (g *CrunchGame) controlMoveLeft(event termloop.Event, now time.Time) {
 func (g *CrunchGame) controlMoveRight(event termloop.Event, now time.Time) {
 	if g.playerPos < g.config.NumCol {
 		g.playerPos++
+		g.pickUpItems(now, g.playerPos)
 		g.player.setPos(g.colX(g.playerPos), g.config.boardSize().Y)
 	}
 }
@@ -999,12 +1065,11 @@ func (g *CrunchGame) controlMoveRight(event termloop.Event, now time.Time) {
 func (g *CrunchGame) controlGrabSpit(event termloop.Event, now time.Time) {
 	if g.player.contains != nil {
 		if g.spitBug(g.playerPos) {
-			g.score++
 			g.player.updateCell()
 		}
 	} else {
 		if g.grabBug(g.playerPos) {
-			g.score++
+			//g.score++
 			g.player.updateCell()
 		}
 	}
@@ -1117,25 +1182,41 @@ type Ground struct {
 	config   *CrunchConfig
 	x        int
 	y        int
+	offset   int
+	spacing  int
 	slots    [][]*Item
 	entities []*termloop.Entity
 }
 
 var _ termloop.Drawable = &Ground{}
 
-func newGround(config *CrunchConfig, x, y int) *Ground {
-	g := &Ground{config: config}
+func newGround(config *CrunchConfig, x, y, offset, spacing int) *Ground {
+	g := &Ground{
+		config:  config,
+		x:       x,
+		y:       y,
+		offset:  offset,
+		spacing: spacing,
+	}
 	g.init()
 	return g
 }
 
 func (g *Ground) takeItems(now time.Time, i int) []*Item {
+	if i >= len(g.slots) {
+		return nil
+	}
+	if len(g.slots[i]) == 0 {
+		return nil
+	}
+
 	var k int
 	for j := range g.slots[i] {
 		if now.After(g.slots[i][j].Despawn) {
 			continue
 		}
 		g.slots[i][k] = g.slots[i][j]
+		log.Printf("found item: %v", g.slots[i][k])
 		k++
 	}
 	items := make([]*Item, k)
@@ -1144,6 +1225,9 @@ func (g *Ground) takeItems(now time.Time, i int) []*Item {
 		g.slots[i][j] = nil
 	}
 	g.slots[i] = g.slots[i][:0]
+
+	g.update(i)
+
 	return items
 }
 
@@ -1167,9 +1251,6 @@ func (g *Ground) despawnItems(now time.Time) {
 
 func (g *Ground) insertItem(now time.Time, i int, item *Item) {
 	items := g.slots[i]
-	defer func() {
-		g.slots[i] = items
-	}()
 
 	special := item.Type.IsSpecial()
 
@@ -1187,7 +1268,9 @@ func (g *Ground) insertItem(now time.Time, i int, item *Item) {
 	}
 	items = items[:k]
 	items = append(items, item)
+	log.Printf("inserted")
 
+	g.slots[i] = items
 	g.update(i)
 }
 
@@ -1198,7 +1281,7 @@ func (g *Ground) init() {
 	}
 	g.entities = make([]*termloop.Entity, g.config.NumCol)
 	for i := range g.entities {
-		g.entities[i] = termloop.NewEntity(g.x+i, g.y, 1, 1)
+		g.entities[i] = termloop.NewEntity(g.x+g.offset+i+g.spacing*(i-1), g.y, 1, 1)
 	}
 	for i := range g.slots {
 		g.update(i)
@@ -1213,10 +1296,11 @@ func (g *Ground) cell(i int) *termloop.Cell {
 	if len(g.slots[i]) == 0 {
 		return &termloop.Cell{
 			Fg: termloop.ColorWhite,
-			Bg: termloop.ColorBlack,
+			Bg: termloop.ColorBlue,
 			Ch: ' ',
 		}
 	}
+	log.Printf("pos=%d ground cell contains an item %q", i, g.cellRune(i))
 	return &termloop.Cell{
 		Fg: defaultColorMap.Color(g.cellFg(i)),
 		Bg: defaultColorMap.Color(g.cellBg(i)),
