@@ -964,7 +964,28 @@ func (g *CrunchGame) normalizeControlEvent(event termloop.Event) (ctrl PlayerCon
 }
 
 func (g *CrunchGame) normalizeKeyPress(event termloop.Event) (ctrl PlayerControl, ok bool) {
-	switch event.Ch { // If so, switch on the pressed key.
+	// Determine if the keypress corresponds to a modifier key combination.
+	//
+	// BUG:
+	// Checking if the Key value is non-zero is not perfect.  It will not
+	// accept the KeyCtrlTilde key combination.  But right now I think this may
+	// be a deficiency in the termloop package.
+	if event.Key != 0 {
+		switch event.Key {
+		case termloop.KeyArrowLeft:
+			return PlayerMoveLeft, true
+		case termloop.KeyArrowRight:
+			return PlayerMoveRight, true
+		case termloop.KeyArrowUp:
+			return PlayerPuke, true
+		case termloop.KeyArrowDown:
+			return PlayerStomp, true
+		case termloop.KeySpace:
+			return PlayerGrabSpit, true
+		}
+	}
+
+	switch event.Ch {
 	case 'h':
 		return PlayerMoveLeft, true
 	case 'j':
