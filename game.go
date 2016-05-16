@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/JoelOtter/termloop"
-	"github.com/nsf/termbox-go"
 )
 
 // Game constants
@@ -1017,9 +1016,9 @@ func (g *CrunchGame) normalizeMouseEvent(event termloop.Event) (ctrl PlayerContr
 	// exist in termloop.
 	// 		https://github.com/JoelOtter/termloop/issues/25
 	switch event.Key {
-	case termloop.Key(termbox.MouseWheelUp):
+	case termloop.MouseWheelUp:
 		return PlayerMoveLeft, true
-	case termloop.Key(termbox.MouseWheelDown):
+	case termloop.MouseWheelDown:
 		return PlayerMoveRight, true
 	case termloop.MouseLeft:
 		return PlayerGrabSpit, true
