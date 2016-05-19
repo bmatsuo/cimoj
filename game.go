@@ -99,12 +99,6 @@ func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLev
 	}
 
 	size := config.boardSize()
-	/*
-		textWidth := 72 - size - 8
-		if textWidth < 0 {
-			textWidth = 20
-		}
-	*/
 	textLevel := termloop.NewBaseLevel(termloop.Cell{})
 	textLevel.SetOffset(size.X+8, 2)
 
@@ -427,6 +421,8 @@ func (g *CrunchGame) randMultiColor() Color {
 
 // Draw implements termloop.Drawable
 func (g *CrunchGame) Draw(screen *termloop.Screen) {
+	g.level.DrawBackground(screen)
+
 	now := time.Now()
 
 	// BUG: I don't think this should be necessary every time the
@@ -1296,7 +1292,7 @@ func (g *Ground) cell(i int) *termloop.Cell {
 	if len(g.slots[i]) == 0 {
 		return &termloop.Cell{
 			Fg: termloop.ColorWhite,
-			Bg: termloop.ColorBlue,
+			Bg: termloop.ColorBlack,
 			Ch: ' ',
 		}
 	}

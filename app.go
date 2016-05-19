@@ -109,30 +109,52 @@ func (app *CrunchApp) createNewGame() *CrunchGame {
 	size := app.config.boardSize()
 	log.Printf("size=[%d, %d] new game", size.X, size.Y)
 
-	level := termloop.NewBaseLevel(termloop.Cell{
+	cellLevel := &termloop.Cell{
 		Bg: termloop.ColorBlack,
 		Fg: termloop.ColorWhite,
-	})
+		Ch: ' ',
+	}
+	level := termloop.NewBaseLevel(*cellLevel)
 
-	board := termloop.NewBaseLevel(termloop.Cell{})
+	cellCanopy := &termloop.Cell{
+		Bg: termloop.ColorBlack,
+		Fg: termloop.ColorGreen,
+		Ch: '~',
+	}
+	cellFloor := &termloop.Cell{
+		Bg: termloop.ColorBlack,
+		Fg: termloop.ColorGreen,
+		Ch: 'v',
+	}
+	cellWall := &termloop.Cell{
+		Bg: termloop.ColorBlack,
+		Fg: termloop.ColorGreen,
+		Ch: '|',
+	}
+
+	board := termloop.NewBaseLevel(*cellLevel)
 	board.SetOffset(2, 1)
 
 	border := termloop.NewEntity(0, 0, size.X+2, size.Y+2)
 	for i := 0; i < size.X+2; i++ {
-		border.SetCell(i, 0, &termloop.Cell{Fg: termloop.ColorGreen, Ch: '~'})
-		border.SetCell(i, size.Y+1, &termloop.Cell{Fg: termloop.ColorGreen, Ch: 'v'})
+		border.SetCell(i, 0, cellCanopy)
+		border.SetCell(i, size.Y+1, cellFloor)
 	}
 	for j := 1; j < size.Y+1; j++ {
-		border.SetCell(0, j, &termloop.Cell{Fg: termloop.ColorGreen, Ch: '|'})
-		border.SetCell(size.X+1, j, &termloop.Cell{Fg: termloop.ColorGreen, Ch: '|'})
+		border.SetCell(0, j, cellWall)
+		border.SetCell(size.X+1, j, cellWall)
 	}
 	board.AddEntity(border)
-	//board.AddEntity(termloop.NewRectangle(1, 1, size.X, size.Y, termloop.ColorCyan))
 
+	cellVine := &termloop.Cell{
+		Bg: termloop.ColorBlack,
+		Fg: termloop.ColorGreen,
+		Ch: '|',
+	}
 	for i := 0; i < app.config.NumCol; i++ {
 		posX := 1 + app.config.ColSpace + app.config.CritterSizeLarge/2 + i*(app.config.ColSpace+app.config.CritterSizeLarge)
 		column := termloop.NewEntity(posX, 1, 1, app.config.colLength())
-		column.Fill(&termloop.Cell{Fg: termloop.ColorGreen, Ch: '|'})
+		column.Fill(cellVine)
 		board.AddEntity(column)
 	}
 
