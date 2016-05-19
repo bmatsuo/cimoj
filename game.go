@@ -347,6 +347,9 @@ func (g *CrunchGame) spawnBugs() {
 	}
 }
 
+func (g *CrunchGame) spawnItems() {
+}
+
 func (g *CrunchGame) spawnBugOnVine(i int) {
 	g.vines[i] = g.vines[i][:len(g.vines[i])+1]
 	copy(g.vines[i][1:], g.vines[i][0:]) // shift bugs "down"
@@ -429,92 +432,50 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 	// underline-state changes... But it is for now.
 	g.player.initEntity()
 
-	twinkle := true
-
 	if g.tutStep < 2 && g.score > 0 {
 		g.tutStep = 2
 		g.setHint("scoring")
 	}
 	if g.gameOver() {
-		if g.endTime.IsZero() {
-			g.setHint("continuing")
-			g.endTime = now
-		}
-		if !g.scoreWriteStarted {
-			g.finishTime = now.Add(500 * time.Millisecond)
-			g.finishTimeout = now.Add(20 * time.Second)
-			record := g.calcHighScore()
-
-			g.scoreWriteStarted = true
-			g.scoreWriteResult = make(chan error, 1)
-			go func() {
-				if g.scoreDB != nil {
-					g.scoreWriteResult <- g.scoreDB.WriteHighScore(record)
-				} else {
-					g.scoreWriteResult <- nil
-				}
-			}()
-		} else if now.After(g.finishTime) {
-			select {
-			case err := <-g.scoreWriteResult:
-				g.scoreWriteResult = nil
-				g.finishTimeout = time.Time{}
-
-				if err != nil {
-					log.Printf("unable to write high score: %v", err)
-				}
-
-				// It is OK to exit the game.
-				g.finished = true
-			default:
-				if !g.finishTimeout.IsZero() && now.After(g.finishTimeout) {
-					panic("hanging while writing the high score record")
-				}
-			}
-		}
-
-		if now.Sub(g.goTime) > time.Second {
-			g.goTime = now
-			if g.showingGameOver {
-				g.level.RemoveEntity(g.textGameOver[0])
-				g.level.RemoveEntity(g.textGameOver[1])
-			} else {
-				g.level.AddEntity(g.textGameOver[0])
-				g.level.AddEntity(g.textGameOver[1])
-			}
-			g.showingGameOver = !g.showingGameOver
-		}
+		g.updateGameOver(now)
 	} else {
-		if !now.After(g.bugSpawnContinue) {
-			// Do nothing
-		} else if now.After(g.bugSpawnTime) {
-			g.bugSpawnTime = now
-			g.bugSpawnContinue = now.Add(SpawnMinRest)
-			g.spawnBugs()
-			g.calcBugSpawnTime()
-			for i := range g.vines {
-				if len(g.vines[i]) == g.config.ColDepth {
-					g.dying = true
-					g.setHint("dying")
-				}
-			}
-		} else if !g.bugSpawnStompTime.IsZero() && now.After(g.bugSpawnStompTime) {
-			if g.bugSpawnStompQueue <= 1 {
-				g.bugSpawnStompQueue = 0
-				g.bugSpawnStompTime = time.Time{}
-			} else {
-				g.bugSpawnStompQueue--
-			}
-			g.bugSpawnContinue = now.Add(SpawnMinRest)
-			g.spawnBugs()
-		}
-		g.textLevel.SetText(fmt.Sprint(g.skillLevel))
-		g.textScore.SetText(fmt.Sprint(g.score))
+		g.updatePlaying(now)
 	}
-	if twinkle && now.Sub(g.multisTime) > 100*time.Millisecond {
+	if now.Sub(g.multisTime) > 100*time.Millisecond {
 		g.multisTime = now
 		g.assignMultiColors()
 	}
+
+	g.level.Draw(screen)
+}
+
+func (g *CrunchGame) updatePlaying(now time.Time) {
+	if !now.After(g.bugSpawnContinue) {
+		// Do nothing
+	} else if now.After(g.bugSpawnTime) {
+		g.bugSpawnTime = now
+		g.bugSpawnContinue = now.Add(SpawnMinRest)
+		g.spawnBugs()
+		g.spawnItems()
+		g.calcBugSpawnTime()
+		for i := range g.vines {
+			if len(g.vines[i]) == g.config.ColDepth {
+				g.dying = true
+				g.setHint("dying")
+			}
+		}
+	} else if !g.bugSpawnStompTime.IsZero() && now.After(g.bugSpawnStompTime) {
+		if g.bugSpawnStompQueue <= 1 {
+			g.bugSpawnStompQueue = 0
+			g.bugSpawnStompTime = time.Time{}
+		} else {
+			g.bugSpawnStompQueue--
+		}
+		g.bugSpawnContinue = now.Add(SpawnMinRest)
+		g.spawnBugs()
+	}
+	g.textLevel.SetText(fmt.Sprint(g.skillLevel))
+	g.textScore.SetText(fmt.Sprint(g.score))
 
 	if g.clearExploded() {
 		log.Printf("triggering explosions")
@@ -536,8 +497,57 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 	}
 
 	g.updateSurvivalDifficulty()
+}
 
-	g.level.Draw(screen)
+func (g *CrunchGame) updateGameOver(now time.Time) {
+	if g.endTime.IsZero() {
+		g.setHint("continuing")
+		g.endTime = now
+	}
+	if !g.scoreWriteStarted {
+		g.finishTime = now.Add(500 * time.Millisecond)
+		g.finishTimeout = now.Add(20 * time.Second)
+		record := g.calcHighScore()
+
+		g.scoreWriteStarted = true
+		g.scoreWriteResult = make(chan error, 1)
+		go func() {
+			if g.scoreDB != nil {
+				g.scoreWriteResult <- g.scoreDB.WriteHighScore(record)
+			} else {
+				g.scoreWriteResult <- nil
+			}
+		}()
+	} else if now.After(g.finishTime) {
+		select {
+		case err := <-g.scoreWriteResult:
+			g.scoreWriteResult = nil
+			g.finishTimeout = time.Time{}
+
+			if err != nil {
+				log.Printf("unable to write high score: %v", err)
+			}
+
+			// It is OK to exit the game.
+			g.finished = true
+		default:
+			if !g.finishTimeout.IsZero() && now.After(g.finishTimeout) {
+				panic("hanging while writing the high score record")
+			}
+		}
+	}
+
+	if now.Sub(g.goTime) > time.Second {
+		g.goTime = now
+		if g.showingGameOver {
+			g.level.RemoveEntity(g.textGameOver[0])
+			g.level.RemoveEntity(g.textGameOver[1])
+		} else {
+			g.level.AddEntity(g.textGameOver[0])
+			g.level.AddEntity(g.textGameOver[1])
+		}
+		g.showingGameOver = !g.showingGameOver
+	}
 }
 
 func (g *CrunchGame) grabBug(i int) bool {
@@ -608,6 +618,9 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug, spit bool) bool {
 	//
 	// BUG: This does not food chains triggered from gaps.  That may be
 	// possible in Critter Crunch.
+	//
+	// BUG: Something happened where a bomb food chained itself, and
+	// subsequently was unable to expode, at position [5, 0].
 	if spit && g.bugEats(i, j-1, bottom, false) {
 		log.Printf("pos=[%d, %d] spit triggered a food chain", i, j)
 		g.level.RemoveEntity(bottom.entity)
