@@ -1430,12 +1430,19 @@ func (g *Ground) cellRune(i int) rune {
 func (g *Ground) cellFg(i int) Color {
 	items := g.slots[i]
 	sort.Sort(&itemsByPrecedence{itemsFgPrecedence, items})
-	// BUG:
-	return ColorNone
+	for j := range items {
+		if items[j].Type.IsMoney() {
+			return ColorMoney
+		}
+	}
+	return ColorItem
 }
 
 func (g *Ground) cellBg(i int) Color {
 	items := g.slots[i]
+	if len(items) == 1 {
+		return ColorBg
+	}
 	sort.Sort(&itemsByPrecedence{itemsBgPrecedence, items})
 	for j := range g.slots[i] {
 		if g.slots[i][j].Type.IsPoison() {
@@ -1445,7 +1452,7 @@ func (g *Ground) cellBg(i int) Color {
 			return ColorMoney
 		}
 	}
-	return ColorNone
+	return ColorBg
 }
 
 // Draw implements termloop.Drawable.
@@ -1661,13 +1668,14 @@ var itemsRunes = []rune{
 
 var defaultColorMap = simpleColorMap{
 	ColorNone:     termloop.ColorWhite,
+	ColorBg:       termloop.ColorBlack,
 	ColorMulti:    termloop.ColorWhite, // ColorMulti is not used
 	ColorBomb:     termloop.ColorRed,
 	ColorExploded: termloop.ColorBlack,
 	ColorPlayer:   termloop.ColorDefault,
 	ColorMoney:    termloop.ColorYellow,
 	ColorPoison:   termloop.ColorGreen,
-	ColorSpecial:  termloop.ColorWhite,
+	ColorItem:     termloop.ColorWhite,
 
 	ColorBug + 0: termloop.ColorYellow,
 	ColorBug + 1: termloop.ColorBlue,
@@ -1697,12 +1705,13 @@ type Color uint8
 // Color constants with special significance.
 const (
 	ColorNone Color = iota
+	ColorBg
 	ColorMulti
 	ColorBomb
 	ColorExploded
 	ColorMoney
 	ColorPoison
-	ColorSpecial
+	ColorItem
 	ColorPlayer
 	ColorBug
 )
