@@ -21,17 +21,21 @@ type SurvivalDifficulty interface {
 	NextLevel(lvl int) int64
 
 	// BugRate returns the expected number of seconds between individual bug
-	// spawns for the current level.  An exponential distribution will
-	// determine the actual duration between each spawn.
+	// spawns for the current level.  An normal distribution will determine the
+	// actual duration between each spawn.
 	BugRate(lvl int) float64
 
 	// ItemRate returns the expected number of seconds between individual item
 	// spawns for the current level and the expected number of seconds for a
-	// spawned item to despawn.  An exponential distribution will determine the
-	// actual duration between each spawn.  Another exponential distribution
+	// spawned item to despawn.  A normal distribution will determine the
+	// actual duration between each spawn.  Another normal distribution
 	// determins the duration each spawn exists.  Multiple items may exist at
 	// the same time.
 	ItemRate(lvl int) (spawn, despawn float64)
+
+	// ItemDistribution returns the distribution of item types seen on the
+	// given level.
+	ItemDistribution(lvl int) ItemDistribution
 }
 
 type simpleSurvivalDifficulty struct{}
@@ -62,6 +66,16 @@ func (s *simpleSurvivalDifficulty) ItemRate(lvl int) (spawn, despawn float64) {
 	spawn = initialSpawnRate * math.Pow(baseSpawnReduction, float64(lvl))
 	despawn = initialDespawnRate * math.Pow(baseDespawnReduction, float64(lvl))
 	return spawn, despawn
+}
+
+func (s *simpleSurvivalDifficulty) ItemDistribution(lvl int) ItemDistribution {
+	return itemTypeDistn{
+		ItemRowClear: 10,
+		ItemPushUp:   10,
+		ItemBullet:   10,
+		ItemScramble: 10,
+		ItemRecolor:  10,
+	}
 }
 
 func (s *simpleSurvivalDifficulty) BugDistribution(lvl int) BugDistribution {

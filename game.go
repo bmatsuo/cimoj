@@ -38,9 +38,11 @@ type CrunchGame struct {
 	scoreThreshold     int64
 	skillLevel         uint32
 	bugDistn           BugDistribution
+	itemDistn          ItemDistribution
 	playerPos          int
 	player             *Player
 	ground             *Ground
+	itemHolderBugs     []*Bug // reference to any bugs holding an item
 	vines              [][]*Bug
 	pendingExplos      []image.Point
 	pendingChains      []image.Point
@@ -224,6 +226,7 @@ func (g *CrunchGame) updateSurvivalDifficulty() bool {
 		g.textLevel.SetText(fmt.Sprint(g.skillLevel))
 		g.bugRate = diff.BugRate(int(g.skillLevel))
 		g.bugDistn = diff.BugDistribution(int(g.skillLevel))
+		g.itemDistn = diff.ItemDistribution(int(g.skillLevel))
 		spawn, despawn := diff.ItemRate(int(g.skillLevel))
 		g.itemSpawnRate = spawn
 		g.itemDespawnRate = despawn
@@ -347,9 +350,6 @@ func (g *CrunchGame) spawnBugs() {
 	}
 }
 
-func (g *CrunchGame) spawnItems() {
-}
-
 func (g *CrunchGame) spawnBugOnVine(i int) {
 	g.vines[i] = g.vines[i][:len(g.vines[i])+1]
 	copy(g.vines[i][1:], g.vines[i][0:]) // shift bugs "down"
@@ -405,7 +405,7 @@ func (g *CrunchGame) assignMultiColors() {
 		}
 		bug.RColor = color
 		cell := &termloop.Cell{
-			Fg: defaultColorMap.Color(bug.ColorEffective()),
+			Fg: g.getBugColor(bug),
 			Ch: bug.Rune,
 		}
 		bug.entity.SetCell(0, 0, cell)
@@ -450,53 +450,22 @@ func (g *CrunchGame) Draw(screen *termloop.Screen) {
 }
 
 func (g *CrunchGame) updatePlaying(now time.Time) {
-	if !now.After(g.bugSpawnContinue) {
-		// Do nothing
-	} else if now.After(g.bugSpawnTime) {
-		g.bugSpawnTime = now
-		g.bugSpawnContinue = now.Add(SpawnMinRest)
-		g.spawnBugs()
-		g.spawnItems()
-		g.calcBugSpawnTime()
-		for i := range g.vines {
-			if len(g.vines[i]) == g.config.ColDepth {
-				g.dying = true
-				g.setHint("dying")
-			}
-		}
-	} else if !g.bugSpawnStompTime.IsZero() && now.After(g.bugSpawnStompTime) {
-		if g.bugSpawnStompQueue <= 1 {
-			g.bugSpawnStompQueue = 0
-			g.bugSpawnStompTime = time.Time{}
-		} else {
-			g.bugSpawnStompQueue--
-		}
-		g.bugSpawnContinue = now.Add(SpawnMinRest)
-		g.spawnBugs()
-	}
-	g.textLevel.SetText(fmt.Sprint(g.skillLevel))
-	g.textScore.SetText(fmt.Sprint(g.score))
+	g.checkSpawnBugs(now)
 
-	if g.clearExploded() {
+	// Clear things and combo as many times as necessary.  If the number of if
+	// the player was able to save themselves from death make sure to clear the
+	// "dying" hint.
+	for g.clearExploded() {
 		log.Printf("triggering explosions")
 		g.triggerExplosions()
 	}
+	g.showClearHintDying()
 
-	if g.dying {
-		remedied := true
-		for i := range g.vines {
-			if len(g.vines[i]) == g.config.ColDepth {
-				remedied = false
-				break
-			}
-		}
-		if remedied {
-			g.dying = false
-			g.clearHint("dying")
-		}
-	}
+	g.checkSpawnItems(now)
 
 	g.updateSurvivalDifficulty()
+	g.textLevel.SetText(fmt.Sprint(g.skillLevel))
+	g.textScore.SetText(fmt.Sprint(g.score))
 }
 
 func (g *CrunchGame) updateGameOver(now time.Time) {
@@ -547,6 +516,123 @@ func (g *CrunchGame) updateGameOver(now time.Time) {
 			g.level.AddEntity(g.textGameOver[1])
 		}
 		g.showingGameOver = !g.showingGameOver
+	}
+}
+
+func (g *CrunchGame) checkSpawnBugs(now time.Time) {
+	if !now.After(g.bugSpawnContinue) {
+		return
+	}
+
+	if now.After(g.bugSpawnTime) {
+		g.bugSpawnTime = now
+		g.bugSpawnContinue = now.Add(SpawnMinRest)
+		g.spawnBugs()
+		g.calcBugSpawnTime()
+		for i := range g.vines {
+			if len(g.vines[i]) == g.config.ColDepth {
+				g.dying = true
+				g.setHint("dying")
+			}
+		}
+		return
+	}
+
+	if !g.bugSpawnStompTime.IsZero() && now.After(g.bugSpawnStompTime) {
+		if g.bugSpawnStompQueue <= 1 {
+			g.bugSpawnStompQueue = 0
+			g.bugSpawnStompTime = time.Time{}
+		} else {
+			g.bugSpawnStompQueue--
+		}
+		g.bugSpawnContinue = now.Add(SpawnMinRest)
+		g.spawnBugs()
+		return
+	}
+}
+
+func (g *CrunchGame) checkSpawnItems(now time.Time) {
+	g.despawnItems(now)
+
+	if now.After(g.itemSpawnTime) {
+		g.itemSpawnTime = now
+		g.spawnNewItem(now)
+		g.calcItemSpawnTime()
+		return
+	}
+}
+
+func (g *CrunchGame) despawnItems(now time.Time) {
+	for i := range g.vines {
+		for j := range g.vines[i] {
+			if g.vines[i][j].Item == nil {
+				continue
+			}
+			if now.After(g.vines[i][j].Item.Despawn) {
+				log.Printf("pos=[%d, %d] item despawned", i, j)
+				g.vines[i][j].Item = nil
+				g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
+					Fg: g.getBugColor(g.vines[i][j]),
+					Ch: g.vines[i][j].Rune,
+				})
+			}
+		}
+	}
+}
+
+func (g *CrunchGame) spawnNewItem(now time.Time) {
+	numBug := 0
+	for i := range g.vines {
+		numBug += len(g.vines[i])
+	}
+	if numBug == 0 {
+		// No bugs to hold the new item... Too bad?
+		return
+	}
+
+	chosenBug := g.rand.Intn(numBug)
+	for i := range g.vines {
+		if chosenBug >= len(g.vines[i]) {
+			chosenBug -= len(g.vines[i])
+			continue
+		}
+		g.spawnNewItemAt(now, i, chosenBug)
+		break
+	}
+}
+
+func (g *CrunchGame) spawnNewItemAt(now time.Time, i, j int) {
+	bug := g.vines[i][j]
+	typ := g.itemDistn.RandItemType(g.rand)
+	log.Printf("pos=[%d, %d] type=%d item spawned", i, j, typ)
+	bug.Item = &Item{
+		Type:    typ,
+		Despawn: g.getItemDespawnTime(now),
+	}
+	g.itemHolderBugs = append(g.itemHolderBugs, bug)
+	bug.entity.SetCell(0, 0, &termloop.Cell{
+		Fg: g.getBugColor(bug),
+		Ch: bug.Rune,
+	})
+}
+
+func (g *CrunchGame) getItemDespawnTime(now time.Time) time.Time {
+	return now.Add(time.Duration(float64(time.Second)*g.itemDespawnRate + 0.333*g.rand.NormFloat64()))
+}
+
+func (g *CrunchGame) showClearHintDying() {
+	if g.dying {
+		remedied := true
+		for i := range g.vines {
+			if len(g.vines[i]) == g.config.ColDepth {
+				remedied = false
+				break
+			}
+		}
+		if remedied {
+			g.dying = false
+			g.clearHint("dying")
+		}
 	}
 }
 
@@ -613,6 +699,16 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug, spit bool) bool {
 
 	bottom.Eaten += 1 + other.Eaten
 	log.Printf("pos=[%d, %d] bug was eaten", i, j)
+	if other.Item != nil {
+		// Items held by the smaller bug are transferred to the larger bug.
+		//
+		// BUG:
+		// It's not clear how this "item inheritence" is supposed to work if
+		// multiple items are allowed to exist at the same time.  As
+		// implemented, any item held by the larger bug will be wiped out when
+		// eating a smaller bug that is also holding an item.
+		bottom.Item = other.Item
+	}
 
 	// Attempt to perform a "food-chain" with the bug above bottom
 	//
@@ -634,7 +730,7 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug, spit bool) bool {
 
 	bottom.Rune = g.assignRune(bottom)
 	bottom.entity.SetCell(0, 0, &termloop.Cell{
-		Fg: defaultColorMap.Color(bottom.ColorEffective()),
+		Fg: g.getBugColor(bottom),
 		Ch: bottom.Rune,
 	})
 
@@ -647,6 +743,14 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug, spit bool) bool {
 	}
 
 	return true
+}
+
+func (g *CrunchGame) getBugColor(bug *Bug) termloop.Attr {
+	attr := defaultColorMap.Color(bug.ColorEffective())
+	if bug.Item != nil {
+		attr |= termloop.AttrUnderline
+	}
+	return attr
 }
 
 // BUG: triggerExplosions is kind of weird. combo tracking is probably broken
@@ -1675,6 +1779,7 @@ type Bug struct {
 	Exploded bool
 	Eaten    int8
 	Rune     rune
+	Item     *Item
 	entity   *termloop.Entity
 }
 

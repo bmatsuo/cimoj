@@ -10,7 +10,6 @@ import (
 type Rand interface {
 	Intn(n int) int
 	Float64() float64
-	ExpFloat64() float64
 	NormFloat64() float64
 }
 
@@ -23,6 +22,12 @@ type BugDistribution interface {
 	// probability of (T, C) conditioned on T=t.  RandColor will only be called
 	// with types BugLarge and BugSmall.
 	RandColor(r Rand, t BugType) Color
+}
+
+// ItemDistribution returns the relative rates at which different types of
+// items are spawned onto bugs.
+type ItemDistribution interface {
+	RandItemType(r Rand) ItemType
 }
 
 type simpleDistribution struct {
@@ -59,6 +64,12 @@ type bugTypeDistn intDistn
 
 func (d bugTypeDistn) Rand(r Rand) BugType {
 	return BugType((intDistn)(d).Rand(r))
+}
+
+type itemTypeDistn intDistn
+
+func (d itemTypeDistn) RandItemType(r Rand) ItemType {
+	return ItemType((intDistn)(d).Rand(r))
 }
 
 type intDistn []int
