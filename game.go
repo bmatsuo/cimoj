@@ -455,9 +455,7 @@ func (g *CrunchGame) updatePlaying(now time.Time) {
 	// Clear things and combo as many times as necessary.  If the number of if
 	// the player was able to save themselves from death make sure to clear the
 	// "dying" hint.
-	for g.clearExploded() {
-		log.Printf("triggering explosions")
-		g.triggerExplosions()
+	for g.clearExploded(now) {
 	}
 	g.showClearHintDying()
 
@@ -755,7 +753,7 @@ func (g *CrunchGame) getBugColor(bug *Bug) termloop.Attr {
 
 // BUG: triggerExplosions is kind of weird. combo tracking is probably broken
 // due to how everything happens instantly.
-func (g *CrunchGame) triggerExplosions() {
+func (g *CrunchGame) triggerExplosions(now time.Time) {
 	// Bombs take precedence over other reactions which propogate more
 	// slowly, IIRC.
 	for _, pt := range g.pendingExplos {
@@ -768,7 +766,7 @@ func (g *CrunchGame) triggerExplosions() {
 	// rules behind that.
 
 	if g.chainSize > 0 {
-		g.dropItem(time.Now(), g.chainEnd, g.moneySize())
+		g.dropItem(now, g.chainEnd, g.moneySize())
 		g.chainSize = 0
 	}
 
@@ -820,7 +818,7 @@ domagics:
 	}
 
 	if g.chainSize > 0 {
-		g.dropItem(time.Now(), g.chainEnd, g.moneySize())
+		g.dropItem(now, g.chainEnd, g.moneySize())
 		g.chainSize = 0
 	}
 }
@@ -849,13 +847,15 @@ func (g *CrunchGame) pickUpItems(now time.Time, i int) {
 
 func (g *CrunchGame) acquireItem(typ ItemType) {
 	pointsRaw := g.pointValue(typ)
-	log.Printf("points=%d item picked up", pointsRaw)
 	if pointsRaw > 0 {
 		points := int64(float64(pointsRaw) * g.scoreMultiplier)
-		log.Printf("points=%d adjusted point value", pointsRaw)
+		log.Printf("points=%d raw=%d adjusted point value", points, pointsRaw)
 		g.score += points
 	}
-
+	if typ.IsSpecial() {
+		log.Printf("type=%v special item acquired", typ)
+		g.player.addInv(typ)
+	}
 }
 
 func (g *CrunchGame) pointValue(typ ItemType) int {
@@ -924,8 +924,8 @@ func decreasePtY(pts *[]image.Point, min int) {
 	}
 }
 
-func (g *CrunchGame) clearExploded() bool {
-	g.triggerExplosions()
+func (g *CrunchGame) clearExploded(now time.Time) bool {
+	g.triggerExplosions(now)
 	consumed := false
 	newvine := make([]*Bug, 0, cap(g.vines[0]))
 	for i := range g.vines {
@@ -936,6 +936,9 @@ func (g *CrunchGame) clearExploded() bool {
 				compacted = true
 				if gapstart < 0 {
 					gapstart = j
+				}
+				if g.vines[i][j].Item != nil {
+					g.dropItem(now, image.Pt(i, j), g.vines[i][j].Item.Type)
 				}
 				decreasePtY(&g.pendingExplos, j)
 				decreasePtY(&g.pendingMagics, j)
@@ -1469,6 +1472,13 @@ func (g *Ground) Tick(event termloop.Event) {
 	}
 }
 
+// Inv represents an item in the player's inventory.  Multiple copies of the
+// same item may be held at a time.
+type Inv struct {
+	Type  ItemType
+	Quant int
+}
+
 // Player is a player in a CrunchGame
 type Player struct {
 	config         *CrunchConfig
@@ -1476,6 +1486,7 @@ type Player struct {
 	stomping       bool
 	stompAvailable time.Time
 	immobilized    time.Time
+	itemInv        []*Inv
 
 	contains *Bug // any contained bug will have its entity removed
 	x        int
@@ -1487,6 +1498,51 @@ func newPlayer(config *CrunchConfig, x, y int) *Player {
 	p.initEntity()
 	p.setPos(x, y)
 	return p
+}
+
+func (p *Player) addInv(typ ItemType) {
+	for i := range p.itemInv {
+		if p.itemInv[i].Type == typ {
+			p.itemInv[i].Quant++
+			return
+		}
+	}
+	p.itemInv = append(p.itemInv, &Inv{
+		Type:  typ,
+		Quant: 1,
+	})
+}
+
+func (p *Player) useInv() (typ ItemType, ok bool) {
+	if len(p.itemInv) == 0 {
+		return 0, false
+	}
+	typ = p.itemInv[0].Type
+	p.itemInv[0].Quant--
+	if p.itemInv[0].Quant == 0 {
+		copy(p.itemInv, p.itemInv[1:])
+		p.itemInv[len(p.itemInv)-1] = nil
+		p.itemInv = p.itemInv[:len(p.itemInv)-1]
+	}
+	return typ, true
+}
+
+func (p *Player) rotateInv(i int) {
+	if len(p.itemInv) == 0 {
+		return
+	}
+
+	i = i % len(p.itemInv)
+	rotated := make([]*Inv, 0, cap(p.itemInv))
+	if i > 0 {
+		rotated = append(rotated, p.itemInv[len(p.itemInv)-i:]...)
+		rotated = append(rotated, p.itemInv[:len(p.itemInv)-i]...)
+	} else {
+		rotated = append(rotated, p.itemInv[-i:]...)
+		rotated = append(rotated, p.itemInv[:-i]...)
+	}
+	p.itemInv = rotated
+
 }
 
 func (p *Player) setPos(x, y int) {
