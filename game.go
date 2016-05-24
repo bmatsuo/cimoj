@@ -1174,9 +1174,9 @@ func (g *CrunchGame) Tick(event termloop.Event) {
 	case PlayerItemUse:
 		// TODO
 	case PlayerItemForward:
-		// TODO
+		g.controlPlayerItemForward(event, now)
 	case PlayerItemBackward:
-		// TODO
+		g.controlPlayerItemBackward(event, now)
 	}
 nomove: // this label is kind of a hack
 }
@@ -1215,6 +1215,16 @@ func (g *CrunchGame) controlStomp(event termloop.Event, now time.Time) {
 		g.bugSpawnStompQueue++
 		g.bugSpawnStompTime = now.Add(StompTime + StompSpawn)
 	}
+}
+
+func (g *CrunchGame) controlPlayerItemForward(event termloop.Event, now time.Time) {
+	g.player.rotateInv(-1)
+	g.setTextInv()
+}
+
+func (g *CrunchGame) controlPlayerItemBackward(event termloop.Event, now time.Time) {
+	g.player.rotateInv(1)
+	g.setTextInv()
 }
 
 func (g *CrunchGame) normalizeControlEvent(event termloop.Event) (ctrl PlayerControl, ok bool) {
