@@ -1382,7 +1382,9 @@ func (g *Ground) insertItem(now time.Time, i int, item *Item) {
 			continue
 		}
 		items[k] = items[j]
-		items[j] = nil
+		if j > k {
+			items[j] = nil
+		}
 		k++
 	}
 	items = items[:k]
