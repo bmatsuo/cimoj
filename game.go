@@ -7,6 +7,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"image"
 	"log"
@@ -68,6 +69,7 @@ type CrunchGame struct {
 	showingGameOver    bool
 	dying              bool
 	textScore          *termloop.Text
+	textInv            *termloop.Text
 	textLevel          *termloop.Text
 	textHintID         string
 	textHint           [4]*termloop.Text
@@ -112,18 +114,20 @@ func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLev
 	g.textGameOver[0] = termloop.NewText(3+size.X/2-10, size.Y/2-1, "     La Ludo    ", termloop.ColorMagenta, 0)
 	g.textGameOver[1] = termloop.NewText(3+size.X/2-10, size.Y/2+1, "     Finiĝis    ", termloop.ColorMagenta, 0)
 
-	textTitle := termloop.NewText(0, 0, "Cimoj", termloop.ColorGreen, 0)
-	textLevel.AddEntity(textTitle)
-
-	textLevelLabel := termloop.NewText(0, 2, "Etaĝo No.:", termloop.ColorGreen, 0)
+	textLevelLabel := termloop.NewText(0, 0, "Etaĝo No.:", termloop.ColorGreen, 0)
 	textLevel.AddEntity(textLevelLabel)
-	g.textLevel = termloop.NewText(textValuePad, 2, "0", termloop.ColorWhite, 0)
+	g.textLevel = termloop.NewText(textValuePad, 0, "0", termloop.ColorWhite, 0)
 	textLevel.AddEntity(g.textLevel)
 
-	textScoreLabel := termloop.NewText(0, 4, "Punktoj:", termloop.ColorGreen, 0)
+	textScoreLabel := termloop.NewText(0, 2, "Punktoj:", termloop.ColorGreen, 0)
 	textLevel.AddEntity(textScoreLabel)
-	g.textScore = termloop.NewText(textValuePad, 4, "0", termloop.ColorWhite, 0)
+	g.textScore = termloop.NewText(textValuePad, 2, "0", termloop.ColorWhite, 0)
 	textLevel.AddEntity(g.textScore)
+
+	textInvLabel := termloop.NewText(0, 4, "Inventaro:", termloop.ColorGreen, 0)
+	textLevel.AddEntity(textInvLabel)
+	g.textInv = termloop.NewText(textValuePad, 4, "", termloop.ColorWhite, 0)
+	textLevel.AddEntity(g.textInv)
 
 	g.initHint(textLevel, 0, 6)
 	level.AddEntity(textLevel)
@@ -520,6 +524,17 @@ func (g *CrunchGame) updateGameOver(now time.Time) {
 	}
 }
 
+func (g *CrunchGame) setTextInv() {
+	var buf bytes.Buffer
+	for i, inv := range g.player.itemInv {
+		if i > 0 {
+			buf.WriteString(" ")
+		}
+		fmt.Fprintf(&buf, "%d%c", inv.Quant, itemsRunes[inv.Type])
+	}
+	g.textInv.SetText(buf.String())
+}
+
 func (g *CrunchGame) checkSpawnBugs(now time.Time) {
 	if !now.After(g.bugSpawnContinue) {
 		return
@@ -858,6 +873,7 @@ func (g *CrunchGame) acquireItem(typ ItemType) {
 	if typ.IsSpecial() {
 		log.Printf("type=%v special item acquired", typ)
 		g.player.addInv(typ)
+		g.setTextInv()
 	}
 }
 
