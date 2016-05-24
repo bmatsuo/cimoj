@@ -1620,10 +1620,11 @@ func (g *Ground) cellRune(i int) rune {
 func (g *Ground) cellFg(i int) Color {
 	items := g.slots[i]
 	sort.Sort(&itemsByPrecedence{itemsFgPrecedence, items})
-	for j := range items {
-		if items[j].Type.IsMoney() {
-			return ColorMoney
-		}
+	if len(items) == 0 {
+		return ColorItem
+	}
+	if items[0].Type.IsMoney() {
+		return ColorMoney
 	}
 	return ColorItem
 }
