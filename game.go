@@ -1516,6 +1516,10 @@ func (p *Player) addInv(typ ItemType) {
 		Type:  typ,
 		Quant: 1,
 	})
+
+	for i := range p.itemInv {
+		log.Printf("ipos=%d item=%v quant=%d", i, p.itemInv[i].Type, p.itemInv[i].Quant)
+	}
 }
 
 func (p *Player) useInv() (typ ItemType, ok bool) {
