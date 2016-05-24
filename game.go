@@ -1007,6 +1007,10 @@ func (g *CrunchGame) acquireItem(typ ItemType) {
 		g.score += points
 	}
 	if typ.IsSpecial() {
+		if g.tutStep < 3 {
+			g.tutStep = 3
+			g.setHint("items")
+		}
 		log.Printf("type=%v special item acquired", typ)
 		g.player.addInv(typ)
 		g.setTextInv()

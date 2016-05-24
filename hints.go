@@ -4,7 +4,7 @@ var hints = map[string][4]string{
 	"controls": {
 		"Movu premante h kaj l.",
 		"",
-		"Prenu kaj kraĉu cimojn premante k.",
+		"Prenu kaj kraĉu cimojn per k.",
 		"",
 	},
 	"feeding": {
@@ -19,6 +19,12 @@ var hints = map[string][4]string{
 		"Ĝi aspektas multekosta.",
 		"",
 	},
+	"items": {
+		"Vi trovis eron!  Ĝi elbe havas",
+		"specialajn povojn!",
+		"",
+		"Uzu erojn per o.",
+	},
 	"dying": {
 		"Via propra morto estas tuja!",
 		"",
@@ -28,7 +34,7 @@ var hints = map[string][4]string{
 	"continuing": {
 		"Bedaŭrinde, vi mortis.",
 		"",
-		"Komencu novan ludo premante 'enter'.",
+		"Komencu novan ludo per 'enter'.",
 		"",
 	},
 }
