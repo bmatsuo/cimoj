@@ -59,8 +59,8 @@ func (s *simpleSurvivalDifficulty) BugRate(lvl int) float64 {
 }
 
 func (s *simpleSurvivalDifficulty) ItemRate(lvl int) (spawn, despawn float64) {
-	const initialSpawnRate = 10  // about every 10 seconds
-	const initialDespawnRate = 5 // about 5 seconds
+	const initialSpawnRate = 15   // about every 10 seconds
+	const initialDespawnRate = 10 // about 5 seconds
 	const baseSpawnReduction = 0.90
 	const baseDespawnReduction = 0.96
 	spawn = initialSpawnRate * math.Pow(baseSpawnReduction, float64(lvl))

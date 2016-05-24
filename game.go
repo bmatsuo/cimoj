@@ -622,7 +622,7 @@ func (g *CrunchGame) spawnNewItem(now time.Time) {
 func (g *CrunchGame) spawnNewItemAt(now time.Time, i, j int) {
 	bug := g.vines[i][j]
 	typ := g.itemDistn.RandItemType(g.rand)
-	log.Printf("pos=[%d, %d] type=%d item spawned", i, j, typ)
+	log.Printf("pos=[%d, %d] type=%v item spawned", i, j, typ)
 	bug.Item = &Item{
 		Type:    typ,
 		Despawn: g.getItemDespawnTime(now),
@@ -1514,7 +1514,6 @@ func (g *Ground) takeItems(now time.Time, i int) []*Item {
 			continue
 		}
 		g.slots[i][k] = g.slots[i][j]
-		log.Printf("found item: %v", g.slots[i][k])
 		k++
 	}
 	items := make([]*Item, k)
@@ -1836,7 +1835,7 @@ func (item ItemType) IsPoison() bool {
 
 // IsSpecial returns true if item is a special item.
 func (item ItemType) IsSpecial() bool {
-	return item >= ItemPushUp
+	return item >= ItemRowClear
 }
 
 type itemsByPrecedence struct {
