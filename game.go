@@ -46,8 +46,10 @@ type CrunchGame struct {
 	playerPos          int
 	player             *Player
 	ground             *Ground
+	bugBuffer          []*Bug
 	itemHolderBugs     []*Bug // reference to any bugs holding an item
 	vines              [][]*Bug
+	pendingItems       []PendingItem
 	pendingExplos      []image.Point
 	pendingChains      []image.Point
 	pendingMagics      []image.Point
@@ -738,9 +740,9 @@ func (g *CrunchGame) bugEats(i, j int, other *Bug, spit bool) bool {
 		g.level.RemoveEntity(bottom.entity)
 		g.vines[i][j] = nil
 		g.vines[i] = g.vines[i][:j]
-		decreasePtY(&g.pendingExplos, j)
-		decreasePtY(&g.pendingMagics, j)
-		decreasePtY(&g.pendingChains, j)
+		decreasePtY(&g.pendingExplos, i, j)
+		decreasePtY(&g.pendingMagics, i, j)
+		decreasePtY(&g.pendingChains, i, j)
 		return true
 	}
 
@@ -772,6 +774,13 @@ func (g *CrunchGame) getBugColor(bug *Bug) termloop.Attr {
 // BUG: triggerExplosions is kind of weird. combo tracking is probably broken
 // due to how everything happens instantly.
 func (g *CrunchGame) triggerExplosions(now time.Time) {
+	// Items com first because they trigger explosions and never need to be
+	// revisited with a goto/loop.
+	for i := range g.pendingItems {
+		g.fireItem(g.pendingItems[i].Type, g.pendingItems[i].Col)
+	}
+	g.pendingItems = g.pendingItems[:0]
+
 	// Bombs take precedence over other reactions which propogate more
 	// slowly, IIRC.
 	for _, pt := range g.pendingExplos {
@@ -856,6 +865,133 @@ func (g *CrunchGame) dropItem(now time.Time, pt image.Point, typ ItemType) {
 	})
 }
 
+func (g *CrunchGame) fireItem(typ ItemType, i int) {
+	switch typ {
+	case ItemRowClear:
+		g.fireItemRowClear(i)
+	case ItemPushUp:
+		g.fireItemPushUp(i)
+	case ItemBullet:
+		g.fireItemBullet(i)
+	case ItemScramble:
+		g.fireItemScramble(i)
+	case ItemRecolor:
+		g.fireItemRecolor(i)
+	}
+}
+
+func (g *CrunchGame) fireItemRowClear(i int) {
+	j := len(g.vines[i]) - 1
+	if j < 0 {
+		return
+	}
+
+	for i := range g.vines {
+		if len(g.vines[i]) <= j {
+			continue
+		}
+
+		if g.vines[i][j].Type == BugBomb || g.vines[i][j].Type == BugLightning {
+			g.pendingExplos = append(g.pendingExplos, image.Pt(i, j))
+			continue
+		}
+
+		g.vines[i][j].Exploded = true
+		g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
+			Fg: defaultColorMap.Color(ColorExploded),
+			Ch: g.vines[i][j].Rune,
+		})
+		g.chainSize++
+		g.chainEnd = image.Pt(i, j)
+	}
+}
+
+func (g *CrunchGame) fireItemPushUp(i int) {
+	for i := range g.vines {
+		if len(g.vines[i]) == 0 {
+			continue
+		}
+
+		g.level.RemoveEntity(g.vines[i][0].entity)
+		copy(g.vines[i], g.vines[i][1:])
+		if len(g.vines[i]) > 1 {
+			g.vines[i][len(g.vines[i])-1] = nil
+		}
+		g.vines[i] = g.vines[i][:len(g.vines[i])-1]
+
+		cx := g.colX(i)
+		for j := range g.vines[i] {
+			g.vines[i][j].entity.SetPosition(cx, j+1)
+		}
+
+		decreasePtY(&g.pendingExplos, i, 0)
+		decreasePtY(&g.pendingMagics, i, 0)
+		decreasePtY(&g.pendingChains, i, 0)
+	}
+}
+
+func (g *CrunchGame) fireItemBullet(i int) {
+	j := len(g.vines[i]) - 1
+	if j < 0 {
+		return
+	}
+
+	if g.vines[i][j].Type == BugBomb || g.vines[i][j].Type == BugLightning {
+		g.pendingExplos = append(g.pendingExplos, image.Pt(i, j))
+		return
+	}
+
+	g.vines[i][j].Exploded = true
+	g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
+		Fg: defaultColorMap.Color(ColorExploded),
+		Ch: g.vines[i][j].Rune,
+	})
+	g.chainSize++
+	g.chainEnd = image.Pt(i, j)
+}
+
+func (g *CrunchGame) fireItemScramble(i int) {
+	for i := range g.vines {
+		for j := range g.vines[i] {
+			g.bugBuffer = append(g.bugBuffer, g.vines[i][j])
+			g.vines[i][j] = nil
+		}
+		g.vines[i] = g.vines[i][:0]
+	}
+
+	for k := range g.bugBuffer {
+		i := k % len(g.vines)
+		g.vines[i] = append(g.vines[i], g.bugBuffer[k])
+
+		cx := g.colX(i)
+		g.bugBuffer[k].entity.SetPosition(cx, len(g.vines[i]))
+	}
+
+	g.clearBugBuffer()
+}
+
+func (g *CrunchGame) clearBugBuffer() {
+	for i := range g.bugBuffer {
+		g.bugBuffer[i] = nil
+	}
+	g.bugBuffer = g.bugBuffer[:0]
+}
+
+func (g *CrunchGame) fireItemRecolor(i int) {
+	for i := range g.vines {
+		for j := range g.vines[i] {
+			switch g.vines[i][j].Color {
+			case ColorBug + 1, ColorBug + 3:
+				g.vines[i][j].Color--
+				g.vines[i][j].entity.SetCell(0, 0, &termloop.Cell{
+					Fg: defaultColorMap.Color(g.vines[i][j].ColorEffective()),
+					Ch: g.vines[i][j].Rune,
+				})
+			}
+		}
+	}
+}
+
 func (g *CrunchGame) pickUpItems(now time.Time, i int) {
 	items := g.ground.takeItems(now, i)
 	for i := range items {
@@ -926,9 +1062,14 @@ func (g *CrunchGame) moneyPoints(ItemType) int {
 	return 0
 }
 
-func decreasePtY(pts *[]image.Point, min int) {
+func decreasePtY(pts *[]image.Point, x, min int) {
 	next := 0
 	for k := range *pts {
+		if (*pts)[k].X != x {
+			(*pts)[next] = (*pts)[k]
+			next++
+			continue
+		}
 		if (*pts)[k].Y < min {
 			(*pts)[next] = (*pts)[k]
 			next++
@@ -959,9 +1100,9 @@ func (g *CrunchGame) clearExploded(now time.Time) bool {
 				if g.vines[i][j].Item != nil {
 					g.dropItem(now, image.Pt(i, j), g.vines[i][j].Item.Type)
 				}
-				decreasePtY(&g.pendingExplos, j)
-				decreasePtY(&g.pendingMagics, j)
-				decreasePtY(&g.pendingChains, j)
+				decreasePtY(&g.pendingExplos, i, j)
+				decreasePtY(&g.pendingMagics, i, j)
+				decreasePtY(&g.pendingChains, i, j)
 				g.level.RemoveEntity(g.vines[i][j].entity)
 			} else if gapstart >= 0 {
 				if j == len(g.vines[i])-1 && !bugClimbs(g.vines[i][j].Type) {
@@ -1172,7 +1313,7 @@ func (g *CrunchGame) Tick(event termloop.Event) {
 	case PlayerPuke:
 		// TODO
 	case PlayerItemUse:
-		// TODO
+		g.controlPlayerItemUse(event, now)
 	case PlayerItemForward:
 		g.controlPlayerItemForward(event, now)
 	case PlayerItemBackward:
@@ -1215,6 +1356,18 @@ func (g *CrunchGame) controlStomp(event termloop.Event, now time.Time) {
 		g.bugSpawnStompQueue++
 		g.bugSpawnStompTime = now.Add(StompTime + StompSpawn)
 	}
+}
+
+func (g *CrunchGame) controlPlayerItemUse(event termloop.Event, now time.Time) {
+	typ, ok := g.player.useInv()
+	if !ok {
+		return
+	}
+	g.setTextInv()
+	g.pendingItems = append(g.pendingItems, PendingItem{
+		Type: typ,
+		Col:  g.playerPos,
+	})
 }
 
 func (g *CrunchGame) controlPlayerItemForward(event termloop.Event, now time.Time) {
@@ -1635,6 +1788,12 @@ func (p Player) cell() *termloop.Cell {
 // Tick implements termloop.Drawable
 func (p *Player) Tick(event termloop.Event) {
 	p.entity.Tick(event)
+}
+
+// PendingItem is an items that was fired from a specific column.
+type PendingItem struct {
+	Type ItemType
+	Col  int
 }
 
 // Item is a useful item for the player.  Special items spawn on/in bugs, in
