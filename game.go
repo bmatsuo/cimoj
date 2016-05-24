@@ -1,6 +1,9 @@
 // BUG: Spawn times don't update immediately when you level up but after the
 // next spawn.  This doesn't really seem right.
 
+//go:generate stringer -type=BugType
+//go:generate stringer -type=ItemType
+
 package main
 
 import (
