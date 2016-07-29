@@ -121,7 +121,7 @@ func NewCrunchGame(config *CrunchConfig, scores ScoreDB, level *termloop.BaseLev
 	g.textLevel = termloop.NewText(textValuePad, 0, "0", termloop.ColorWhite, 0)
 	textLevel.AddEntity(g.textLevel)
 
-	textScoreLabel := termloop.NewText(0, 2, "Punktoj:", termloop.ColorGreen, 0)
+	textScoreLabel := termloop.NewText(0, 2, "Poentoj:", termloop.ColorGreen, 0)
 	textLevel.AddEntity(textScoreLabel)
 	g.textScore = termloop.NewText(textValuePad, 2, "0", termloop.ColorWhite, 0)
 	textLevel.AddEntity(g.textScore)
