@@ -10,7 +10,7 @@ reciproke.
 
 #Dankoj
 
-Maltaj dankoj al Capybara Games pro kreas Critter Crunch.  Ili miritas fanojn
+Multaj dankoj al Capybara Games pro kreas Critter Crunch.  Ili miritas fanojn
 kaj subtenon.
 
 Ankaŭ dankoj al la projektojn [termloop](https://github.com/JoelOtter/termloop)
